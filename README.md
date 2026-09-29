@@ -11,6 +11,10 @@ A production-ready web application for live interactive sessions with multiple r
 - **Server-authoritative**: Client timers are display only; server determines all scoring
 - **Mobile-first**: Responsive design for phones, tablets, and desktops
 - **Network resilient**: Socket.IO reconnection and state synchronization
+- **Session cleanup**: Automatic cleanup of stale sessions
+- **Image storage**: Cloudinary integration for question images
+- **Rate limiting**: Configurable per endpoint
+- **Load testing**: Built-in load testing tooling
 
 ## Architecture
 
@@ -27,6 +31,7 @@ docs/      - Documentation
 - Node.js 18+
 - MongoDB Atlas cluster
 - (Optional) reCAPTCHA v3 keys
+- (Optional) Cloudinary account
 
 ### Setup
 
@@ -42,6 +47,13 @@ docs/      - Documentation
 ### Environment Variables
 
 See `docs/ENVIRONMENT.md` for all required variables.
+
+### Required Configuration
+
+**Before running, configure these in `server/.env`:**
+- `MONGODB_URI` - Your MongoDB Atlas connection string
+- `JWT_SECRET` - A long random secret (64+ characters)
+- `MONGODB_DB_NAME` - Database name (default: `vlite`)
 
 ## API Endpoints
 
@@ -86,13 +98,31 @@ cd server
 npm test
 ```
 
+Load testing:
+```bash
+TEST_PARTICIPANTS=50 TEST_ROOMS=3 node tests/load-test.js
+```
+
 ## Load Testing
 
 See `docs/LOAD_TESTING.md` for testing plan.
 
-## Deployment
+## Scaling
 
-See `docs/DEPLOYMENT.md` for deployment instructions.
+See `docs/SCALING.md` for scaling architecture.
+
+## Documentation
+
+- `docs/ARCHITECTURE.md` - System architecture
+- `docs/SETUP.md` - Setup guide
+- `docs/DATABASE.md` - Database design
+- `docs/REALTIME.md` - Real-time architecture
+- `docs/SECURITY.md` - Security details
+- `docs/DEPLOYMENT.md` - Deployment instructions
+- `docs/TESTING.md` - Testing guide
+- `docs/LOAD_TESTING.md` - Load testing plan
+- `docs/ENVIRONMENT.md` - Environment variables
+- `docs/SCALING.md` - Scaling architecture
 
 ## License
 

@@ -8,6 +8,7 @@ const config = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
   mongoUri: process.env.MONGODB_URI || '',
+  mongoDbName: process.env.MONGODB_DB_NAME || 'vlite',
   captchaProvider: process.env.CAPTCHA_PROVIDER || 'none',
   recaptchaSiteKey: process.env.RECAPTCHA_SITE_KEY || '',
   recaptchaSecretKey: process.env.RECAPTCHA_SECRET_KEY || '',

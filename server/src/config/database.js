@@ -21,15 +21,14 @@ async function connectDB() {
   }
 
   try {
-    const dbName = uri.includes('/vlite') ? undefined : 'vlite';
     const conn = await mongoose.connect(uri, {
-      dbName,
-      // Server API version for stability
+      dbName: config.mongoDbName,
     });
 
     isConnected = true;
     logger.info(`MongoDB connected: ${conn.connection.host}`);
     logger.info(`Database: ${conn.connection.name}`);
+    logger.info(`VLITE database confirmed: ${config.mongoDbName}`);
   } catch (error) {
     logger.error(`MongoDB connection error: ${error.message}`);
     throw error;

@@ -2,10 +2,22 @@
 
 ## MongoDB Database
 
-- **Database name**: `vlite`
+- **Database name**: `vlite` (configurable via `MONGODB_DB_NAME`)
 - **Cluster**: MongoDB Atlas
+- **Config variable**: `MONGODB_DB_NAME` in `server/.env`
+- **VLITE uses ONLY this database. No other databases are modified.**
 
-## Collections
+The database name is read from the `MONGODB_DB_NAME` environment variable (default: `vlite`).
+This ensures VLITE never accidentally accesses other databases in the same Atlas cluster.
+
+### Indexes
+
+**User:** `email: 1` (unique)
+**Room:** `lrn: 1` (unique), `host: 1`, `status: 1`
+**Question:** `room: 1, order: 1`, `room: 1, isActive: 1`
+**ParticipantSession:** `token: 1` (unique), `room: 1`, `room: 1, token: 1` (unique)
+**Answer:** `participantSession: 1, question: 1` (unique, prevents duplicate answers)
+**Result:** `room: 1, score: -1`, `room: 1, rank: 1`
 
 ### User
 

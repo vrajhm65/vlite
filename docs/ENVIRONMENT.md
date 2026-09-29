@@ -9,6 +9,7 @@ All configuration is done through environment variables. Never hard-code secrets
 | Variable | Required | Example | Description |
 |----------|----------|---------|-------------|
 | MONGODB_URI | Yes | `mongodb+srv://user:pass@cluster.mongodb.net/vlite` | MongoDB Atlas connection string |
+| MONGODB_DB_NAME | No | `vlite` | Database name (VLITE uses ONLY this database) |
 | JWT_SECRET | Yes | 64+ random characters | JWT signing secret |
 | JWT_EXPIRES_IN | No | `7d` | Token expiration |
 | PORT | No | `5000` | Server port |
@@ -23,6 +24,8 @@ All configuration is done through environment variables. Never hard-code secrets
 | REDIS_URL | No | `redis://localhost:6379` | Redis for multi-instance |
 | RATE_LIMIT_WINDOW_MS | No | `60000` | Rate limit window |
 | RATE_LIMIT_MAX | No | `100` | Rate limit max |
+| SESSION_GRACE_PERIOD_MS | No | `86400000` | Cleanup grace period (24h) |
+| CLEANUP_INTERVAL_MS | No | `1800000` | Cleanup job interval (30min) |
 
 ## Client Environment Variables (client/.env)
 
@@ -38,7 +41,14 @@ All configuration is done through environment variables. Never hard-code secrets
 - JWT_SECRET
 - CAPTCHA_SECRET_KEY
 - CLOUDINARY_API_SECRET
+- CLOUDINARY_API_KEY (also secret)
 - Redis URL (if password protected)
+
+### Backend Internal (configuration, not secrets)
+- MONGODB_DB_NAME
+- SESSION_GRACE_PERIOD_MS
+- CLEANUP_INTERVAL_MS
+- SESSION_CLEANUP_INTERVAL_MS
 
 ### Frontend Public (safe in client code)
 - VITE_API_URL
@@ -50,6 +60,7 @@ All configuration is done through environment variables. Never hard-code secrets
 - JWT_SECRET
 - CAPTCHA_SECRET_KEY
 - CLOUDINARY_API_SECRET
+- CLOUDINARY_API_KEY
 - Any private API keys
 
 ## Getting Started
@@ -57,8 +68,9 @@ All configuration is done through environment variables. Never hard-code secrets
 1. Copy `.env.example` files to `.env`
 2. Get MongoDB URI from Atlas
 3. Generate JWT secret
-4. Fill in all required variables
-5. Never commit `.env` to Git
+4. Set `MONGODB_DB_NAME=vlite` in server/.env
+5. Fill in all required variables
+6. Never commit `.env` to Git
 
 ## Generating JWT Secret
 

@@ -32,21 +32,30 @@ Secrets:
 - `JWT_SECRET` - JWT signing
 - `RECAPTCHA_SECRET_KEY` - CAPTCHA verification
 - `CLOUDINARY_API_SECRET` - Storage credentials
+- `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` - Cloudinary configuration
+
+## CAPTCHA
+
+- `CAPTCHA_PROVIDER`: `none` (dev), `recaptcha-v3`, `hcaptcha`
+- `RECAPTCHA_SITE_KEY`: Public key (safe for frontend)
+- `RECAPTCHA_SECRET_KEY`: Private key (NEVER expose to frontend)
+- CAPTCHA verification always server-side
+- Failed CAPTCHA rejects join request
 
 ## Rate Limiting
 
 - General API: 100 requests per minute
 - Auth endpoints: 10 requests per 15 minutes
 - Answer submissions: 5 per 10 seconds
+- Room creation: 5 per minute
 
-## Input Validation
+## Image Storage
 
-All inputs validated with express-validator:
-- Email format
-- Name length
-- LRN format (4 digits)
-- Option indices within bounds
-- Session tokens verified
+- Images stored in Cloudinary (or S3-compatible storage)
+- Only image URL stored in MongoDB
+- File size limited to 5MB
+- File types restricted: JPEG, PNG, GIF, WebP
+- Upload endpoint requires host authentication
 
 ## Do NOT
 
@@ -56,3 +65,5 @@ All inputs validated with express-validator:
 - Trust client-side timers for scoring
 - Trust client-side scores
 - Allow client-side role switching
+- Store images directly in MongoDB
+- Store secrets in frontend code

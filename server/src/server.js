@@ -6,6 +6,7 @@ import config from './config/index.js';
 import logger from './utils/logger.js';
 import app from './app.js';
 import { initSocketIO } from './sockets/index.js';
+import { startCleanup, stopCleanup } from './jobs/cleanupJob.js';
 
 async function main() {
   await connectDB();
@@ -28,6 +29,9 @@ async function main() {
   // Attach io to app
   app.set('io', io);
 
+  // Start session cleanup job
+  startCleanup();
+
   const PORT = config.port;
   server.listen(PORT, () => {
     logger.info(`VLITE server running on port ${PORT}`);
@@ -36,6 +40,14 @@ async function main() {
 
   process.on('SIGTERM', () => {
     logger.info('SIGTERM received, shutting down gracefully');
+    stopCleanup();
+    server.close(() => {
+      process.exit(0);
+    });
+  });
+  process.on('SIGINT', () => {
+    logger.info('SIGINT received, shutting down gracefully');
+    stopCleanup();
     server.close(() => {
       process.exit(0);
     });
