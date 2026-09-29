@@ -1,0 +1,48 @@
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import connectDB from './config/database.js';
+import config from './config/index.js';
+import logger from './utils/logger.js';
+import app from './app.js';
+import { initSocketIO } from './sockets/index.js';
+
+async function main() {
+  await connectDB();
+
+  const server = http.createServer(app);
+
+  const io = new Server(server, {
+    cors: {
+      origin: config.clientUrl,
+      methods: ['GET', 'POST'],
+    },
+    maxHttpBufferSize: 1e6,
+    pingTimeout: 60000,
+    pingInterval: 25000,
+  });
+
+  // Initialize Socket.IO handlers
+  initSocketIO(io);
+
+  // Attach io to app
+  app.set('io', io);
+
+  const PORT = config.port;
+  server.listen(PORT, () => {
+    logger.info(`VLITE server running on port ${PORT}`);
+    logger.info(`Environment: ${config.nodeEnv}`);
+  });
+
+  process.on('SIGTERM', () => {
+    logger.info('SIGTERM received, shutting down gracefully');
+    server.close(() => {
+      process.exit(0);
+    });
+  });
+}
+
+main().catch((err) => {
+  logger.error(`Server startup failed: ${err.message}`);
+  process.exit(1);
+});
