@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../services/api.js';
 
 function JoinRoomPage() {
-  const [name, setName] = useState('');
-  const [captchaToken, setCaptchaToken] = useState('');
+  const [participantName, setParticipantName] = useState('');
   const [lrn, setLrn] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,19 +15,13 @@ function JoinRoomPage() {
     setLoading(true);
 
     try {
-      // First verify room exists
-      const roomRes = await api.get(`/rooms/lrn/${lrn}`);
-      const roomId = roomRes.data.room._id;
-
-      // Join room
       const res = await api.post('/participants/join', {
-        name,
-        captchaToken,
-        roomId,
+        participantName,
+        lrn,
       });
 
       localStorage.setItem('vlite_token', res.data.token);
-      navigate(`/session/${roomId}`);
+      navigate(`/session/${res.data.roomId}`);
     } catch (err) {
       setError(err.message || 'Failed to join room');
     } finally {
@@ -47,24 +40,14 @@ function JoinRoomPage() {
             <input
               id="name"
               type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+              value={participantName}
+              onChange={(e) => setParticipantName(e.target.value)}
               required
               maxLength={100}
             />
           </div>
           <div className="form-group">
-            <label htmlFor="captcha">CAPTCHA (Dev mode: enter any text)</label>
-            <input
-              id="captcha"
-              type="text"
-              value={captchaToken}
-              onChange={(e) => setCaptchaToken(e.target.value)}
-              required
-            />
-          </div>
-          <div className="form-group">
-            <label htmlFor="lrn">Room LRN (4-digit number)</label>
+            <label htmlFor="lrn">Live Room Number (4-digit number)</label>
             <input
               id="lrn"
               type="text"
@@ -77,7 +60,7 @@ function JoinRoomPage() {
             />
           </div>
           <button type="submit" className="btn btn-primary" disabled={loading}>
-            {loading ? 'Joining...' : 'Join Room'}
+            {loading ? 'Joining...' : 'Join Live Room'}
           </button>
         </form>
       </div>

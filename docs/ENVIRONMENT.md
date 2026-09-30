@@ -15,9 +15,6 @@ All configuration is done through environment variables. Never hard-code secrets
 | PORT | No | `5000` | Server port |
 | NODE_ENV | No | `development` or `production` | Environment |
 | CLIENT_URL | No | `http://localhost:5173` | Frontend URL for CORS |
-| CAPTCHA_PROVIDER | No | `none` or `recaptcha-v3` | CAPTCHA provider |
-| RECAPTCHA_SITE_KEY | No | (public key) | reCAPTCHA site key |
-| RECAPTCHA_SECRET_KEY | No | (private key) | reCAPTCHA secret |
 | CLOUDINARY_CLOUD_NAME | No | | Cloudinary cloud name |
 | CLOUDINARY_API_KEY | No | | Cloudinary API key |
 | CLOUDINARY_API_SECRET | No | | Cloudinary API secret |
@@ -39,7 +36,6 @@ All configuration is done through environment variables. Never hard-code secrets
 ### Backend Secrets (NEVER expose to frontend)
 - MONGODB_URI
 - JWT_SECRET
-- CAPTCHA_SECRET_KEY
 - CLOUDINARY_API_SECRET
 - CLOUDINARY_API_KEY (also secret)
 - Redis URL (if password protected)
@@ -48,17 +44,14 @@ All configuration is done through environment variables. Never hard-code secrets
 - MONGODB_DB_NAME
 - SESSION_GRACE_PERIOD_MS
 - CLEANUP_INTERVAL_MS
-- SESSION_CLEANUP_INTERVAL_MS
 
 ### Frontend Public (safe in client code)
 - VITE_API_URL
 - VITE_SOCKET_URL
-- RECAPTCHA_SITE_KEY (public key)
 
 ### NEVER in Frontend
 - MONGODB_URI
 - JWT_SECRET
-- CAPTCHA_SECRET_KEY
 - CLOUDINARY_API_SECRET
 - CLOUDINARY_API_KEY
 - Any private API keys

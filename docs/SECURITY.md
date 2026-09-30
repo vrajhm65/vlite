@@ -30,17 +30,8 @@ Never commit `.env`. Use `.env.example` as template.
 Secrets:
 - `MONGODB_URI` - Database connection
 - `JWT_SECRET` - JWT signing
-- `RECAPTCHA_SECRET_KEY` - CAPTCHA verification
 - `CLOUDINARY_API_SECRET` - Storage credentials
 - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY` - Cloudinary configuration
-
-## CAPTCHA
-
-- `CAPTCHA_PROVIDER`: `none` (dev), `recaptcha-v3`, `hcaptcha`
-- `RECAPTCHA_SITE_KEY`: Public key (safe for frontend)
-- `RECAPTCHA_SECRET_KEY`: Private key (NEVER expose to frontend)
-- CAPTCHA verification always server-side
-- Failed CAPTCHA rejects join request
 
 ## Rate Limiting
 
