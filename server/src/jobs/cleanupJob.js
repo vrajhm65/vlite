@@ -1,49 +1,52 @@
 import ParticipantSession from '../models/ParticipantSession.js';
 import Room from '../models/Room.js';
-import Answer from '../models/Answer.js';
 import logger from '../utils/logger.js';
-import config from '../config/index.js';
+import expertQueue from '../services/expertModeService.js';
 
 /**
  * Session cleanup job.
- * Runs periodically to remove stale data while preserving historical results.
  *
  * Retention policy:
- * - Permanent: Results, Answer records, Questions, Room configurations
- * - Temporary: ParticipantSession (cleaned after session ends + grace period)
- * - Temporary: Expert queue state (in-memory, reset per question)
+ * - Permanent: Results, Answers, Questions, Room configurations
+ * - Temporary: ParticipantSession records from old ended sessions
+ * - Temporary: Expert queue state (in-memory)
  *
- * Do NOT delete:
- * - Result records (historical session results)
- * - Answer records (audit trail)
- * - Question data
- * - Room configurations
- *
- * Configurable via environment variables:
- * - SESSION_CLEANUP_INTERVAL_MS: How often cleanup runs (default: 30min)
- * - SESSION_GRACE_PERIOD_MS: Time to keep ended sessions (default: 24h)
- * - PARTICIPANT_GRACE_PERIOD_MS: Time to keep disconnected participants (default: 1h)
+ * Configurable through environment variables:
+ * - SESSION_CLEANUP_INTERVAL_MS
+ * - SESSION_GRACE_PERIOD_MS
+ * - PARTICIPANT_GRACE_PERIOD_MS
  */
 
-const SESSION_GRACE_PERIOD_MS = parseInt(process.env.SESSION_GRACE_PERIOD_MS || '86400000', 10); // 24h
-const PARTICIPANT_GRACE_PERIOD_MS = parseInt(process.env.PARTICIPANT_GRACE_PERIOD_MS || '3600000', 10); // 1h
-const CLEANUP_INTERVAL_MS = parseInt(process.env.CLEANUP_INTERVAL_MS || '1800000', 10); // 30min
+const SESSION_GRACE_PERIOD_MS = parseInt(
+  process.env.SESSION_GRACE_PERIOD_MS || '86400000',
+  10
+);
+
+const PARTICIPANT_GRACE_PERIOD_MS = parseInt(
+  process.env.PARTICIPANT_GRACE_PERIOD_MS || '3600000',
+  10
+);
+
+const CLEANUP_INTERVAL_MS = parseInt(
+  process.env.CLEANUP_INTERVAL_MS || '1800000',
+  10
+);
 
 let cleanupInterval = null;
 
 /**
- * Clean up participant sessions from ended rooms past the grace period.
- * Preserves Answer and Result records.
+ * Remove participant sessions belonging to old ended rooms.
+ *
+ * Answer and Result records are intentionally preserved.
  */
 async function cleanupEndedSessions() {
   try {
     const cutoff = new Date(Date.now() - SESSION_GRACE_PERIOD_MS);
 
-    // Find ended rooms with old sessions
     const endedRooms = await Room.find({
       status: 'ended',
       updatedAt: { $lt: cutoff },
-    });
+    }).select('_id lrn');
 
     if (endedRooms.length === 0) {
       logger.info('Cleanup: No ended sessions to clean');
@@ -55,7 +58,12 @@ async function cleanupEndedSessions() {
         room: room._id,
         joinedAt: { $lt: cutoff },
       });
-      logger.info(`Cleanup: Removed ${removed.deletedCount} sessions from room ${room.lrn}`);
+
+      if (removed.deletedCount > 0) {
+        logger.info(
+          `Cleanup: Removed ${removed.deletedCount} sessions from room ${room.lrn}`
+        );
+      }
     }
   } catch (error) {
     logger.error(`Cleanup error: ${error.message}`);
@@ -63,9 +71,10 @@ async function cleanupEndedSessions() {
 }
 
 /**
- * Mark disconnected participants who haven't been seen for too long.
- * Does NOT delete them - just marks them as disconnected.
- * Preserves their scores and answer history.
+ * Mark participants as disconnected when they have not
+ * sent a heartbeat/update for the configured grace period.
+ *
+ * Participant records are not deleted here.
  */
 async function cleanupDisconnectedParticipants() {
   try {
@@ -76,11 +85,17 @@ async function cleanupDisconnectedParticipants() {
         isConnected: true,
         lastSeenAt: { $lt: cutoff },
       },
-      { isConnected: false }
+      {
+        $set: {
+          isConnected: false,
+        },
+      }
     );
 
     if (updated.modifiedCount > 0) {
-      logger.info(`Cleanup: Marked ${updated.modifiedCount} participants as disconnected`);
+      logger.info(
+        `Cleanup: Marked ${updated.modifiedCount} participants as disconnected`
+      );
     }
   } catch (error) {
     logger.error(`Cleanup error: ${error.message}`);
@@ -88,19 +103,26 @@ async function cleanupDisconnectedParticipants() {
 }
 
 /**
- * Remove stale expert queue entries for ended rooms.
- * The expert queue is in-memory, so this is a safety net.
+ * Reset in-memory Expert Mode queues for ended rooms.
+ *
+ * No database records are required for the queue itself.
  */
 async function cleanupExpertQueues() {
   try {
-    const expertQueue = require('../services/expertModeService.js').default;
-    const endedRooms = await Room.find({ status: 'ended' });
+    const endedRooms = await Room.find({
+      status: 'ended',
+    }).select('_id lrn');
 
     for (const room of endedRooms) {
-      const queue = expertQueue.getQueue(room._id.toString());
+      const roomId = room._id.toString();
+      const queue = expertQueue.getQueue(roomId);
+
       if (queue.length > 0) {
-        expertQueue.resetQueue(room._id.toString());
-        logger.info(`Cleanup: Reset expert queue for ended room ${room.lrn}`);
+        expertQueue.resetQueue(roomId);
+
+        logger.info(
+          `Cleanup: Reset expert queue for ended room ${room.lrn}`
+        );
       }
     }
   } catch (error) {
@@ -109,7 +131,7 @@ async function cleanupExpertQueues() {
 }
 
 /**
- * Main cleanup routine.
+ * Run all cleanup operations.
  */
 async function runCleanup() {
   logger.info('Running session cleanup...');
@@ -122,7 +144,10 @@ async function runCleanup() {
 }
 
 /**
- * Start the cleanup interval.
+ * Start the periodic cleanup job.
+ *
+ * Cleanup runs immediately once and then according
+ * to CLEANUP_INTERVAL_MS.
  */
 function startCleanup() {
   if (cleanupInterval) {
@@ -130,20 +155,32 @@ function startCleanup() {
     return;
   }
 
-  runCleanup(); // Run immediately on start
-  cleanupInterval = setInterval(runCleanup, CLEANUP_INTERVAL_MS);
-  logger.info(`Cleanup job started: interval=${CLEANUP_INTERVAL_MS}ms, grace=${SESSION_GRACE_PERIOD_MS}ms`);
+  runCleanup();
+
+  cleanupInterval = setInterval(
+    runCleanup,
+    CLEANUP_INTERVAL_MS
+  );
+
+  logger.info(
+    `Cleanup job started: interval=${CLEANUP_INTERVAL_MS}ms, grace=${SESSION_GRACE_PERIOD_MS}ms`
+  );
 }
 
 /**
- * Stop the cleanup interval.
+ * Stop the cleanup job.
  */
 function stopCleanup() {
   if (cleanupInterval) {
     clearInterval(cleanupInterval);
     cleanupInterval = null;
+
     logger.info('Cleanup job stopped');
   }
 }
 
-export { runCleanup, startCleanup, stopCleanup };
+export {
+  runCleanup,
+  startCleanup,
+  stopCleanup,
+};

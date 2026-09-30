@@ -1,4 +1,7 @@
 import jwt from 'jsonwebtoken';
+
+const { sign, verify } = jwt;
+
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
@@ -15,7 +18,7 @@ function authenticate(req, res, next) {
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, config.jwtSecret);
+    const decoded = verify(token, config.jwtSecret);
     req.user = decoded;
     next();
   } catch (err) {
@@ -35,3 +38,5 @@ function requireHost(req, res, next) {
 }
 
 export { authenticate, requireHost };
+
+

@@ -1,5 +1,7 @@
 import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
+
+const { sign, verify } = jwt;
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 import { body, validationResult } from 'express-validator';
@@ -8,7 +10,7 @@ import { body, validationResult } from 'express-validator';
  * Generate JWT for host.
  */
 function generateHostToken(hostId) {
-  return jwt.sign(
+  return sign(
     { userId: hostId, role: 'host' },
     config.jwtSecret,
     { expiresIn: config.jwtExpiresIn }
@@ -93,3 +95,5 @@ async function getMe(req, res) {
 }
 
 export { hostLogin, createHost, getMe };
+
+

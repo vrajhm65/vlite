@@ -417,3 +417,132 @@ body {
 button, a {
   touch-action: manipulation;
 }
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal-card {
+  background: var(--color-surface);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 2rem;
+  max-width: 520px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-card.modal-large {
+  max-width: 720px;
+}
+
+.modal-card h3 {
+  margin-bottom: 1.5rem;
+  color: var(--color-primary);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+}
+
+.form-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.form-row .form-group {
+  flex: 1;
+}
+
+/* Room actions */
+.room-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  min-height: 36px;
+}
+
+/* Question list */
+.question-list {
+  margin: 1rem 0;
+}
+
+.question-item {
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+}
+
+.question-text {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.question-meta {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.5rem;
+}
+
+/* Option input */
+.option-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.option-label {
+  font-weight: 700;
+  min-width: 24px;
+}
+
+.option-input-row input[type="text"] {
+  flex: 1;
+}
+
+.correct-radio {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+/* Section header */
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.add-question-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.add-question-section h4 {
+  margin-bottom: 1rem;
+}

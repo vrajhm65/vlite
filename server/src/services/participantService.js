@@ -1,6 +1,8 @@
 import ParticipantSession from '../models/ParticipantSession.js';
 import Room from '../models/Room.js';
 import jwt from 'jsonwebtoken';
+
+const { sign, verify } = jwt;
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
 
@@ -25,7 +27,7 @@ async function createParticipantSession(name, roomId) {
 
   // Create session token (server-side secret, not guessable)
   const sessionId = `${roomId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  const token = jwt.sign(
+  const token = sign(
     { sessionId, roomId, name, role: 'participant' },
     config.jwtSecret,
     { expiresIn: config.jwtExpiresIn }
@@ -45,7 +47,7 @@ async function createParticipantSession(name, roomId) {
 async function validateParticipantSession(token, roomId) {
   if (!token) return null;
   try {
-    const decoded = jwt.verify(token, config.jwtSecret);
+    const decoded = verify(token, config.jwtSecret);
     if (decoded.roomId !== roomId) return null;
     const session = await ParticipantSession.findOne({ token, room: roomId });
     if (!session) return null;
@@ -72,3 +74,5 @@ async function markParticipantDisconnected(participantId) {
 }
 
 export { createParticipantSession, validateParticipantSession, getParticipantsByRoom, updateParticipantSocket, markParticipantDisconnected };
+
+

@@ -3,16 +3,90 @@ import { createParticipantSession, validateParticipantSession } from '../service
 import logger from '../utils/logger.js';
 
 /**
- * Simple honeypot CAPTCHA for dev mode.
- * In production, integrate reCAPTCHA v3 or hCaptcha.
+ * Verify CAPTCHA token.
+ *
+ * - 'none' (dev): accepts any non-empty token
+ * - 'recaptcha-v3': verifies with Google reCAPTCHA v3 API
+ * - 'hcaptcha': verifies with hCaptcha API
+ *
+ * Secret keys are NEVER exposed to the frontend.
  */
-function verifyCaptcha(token) {
-  if (process.env.CAPTCHA_PROVIDER === 'none') {
+async function verifyCaptcha(token) {
+  const provider = process.env.CAPTCHA_PROVIDER || 'none';
+
+  if (provider === 'none') {
     // Dev mode: accept any non-empty token
-    return token && token.length > 0;
+    return Boolean(token && token.length > 0);
   }
-  // Production CAPTCHA verification would go here
-  return true;
+
+  if (!token || typeof token !== 'string' || token.length < 20) {
+    return false;
+  }
+
+  try {
+    if (provider === 'recaptcha-v3') {
+      const secret = process.env.RECAPTCHA_SECRET_KEY;
+      if (!secret) {
+        logger.error('RECAPTCHA_SECRET_KEY not configured');
+        return false;
+      }
+
+      const verifyUrl = 'https://www.google.com/recaptcha/api/siteverify';
+      const params = new URLSearchParams({
+        secret,
+        response: token,
+      });
+
+      const response = await fetch(verifyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+
+      if (!response.ok) {
+        logger.warn(`reCAPTCHA verification failed: HTTP ${response.status}`);
+        return false;
+      }
+
+      const data = await response.json();
+      return data.success === true && (data.score === undefined || data.score >= 0.5);
+    }
+
+    if (provider === 'hcaptcha') {
+      const secret = process.env.HCAPTCHA_SECRET_KEY;
+      if (!secret) {
+        logger.error('HCAPTCHA_SECRET_KEY not configured');
+        return false;
+      }
+
+      const verifyUrl = 'https://hcaptcha.com/siteverify';
+      const params = new URLSearchParams({
+        secret,
+        response: token,
+      });
+
+      const response = await fetch(verifyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+
+      if (!response.ok) {
+        logger.warn(`hCaptcha verification failed: HTTP ${response.status}`);
+        return false;
+      }
+
+      const data = await response.json();
+      return data.success === true;
+    }
+
+    // Unknown provider: reject
+    logger.error(`Unknown CAPTCHA provider: ${provider}`);
+    return false;
+  } catch (error) {
+    logger.error(`CAPTCHA verification error: ${error.message}`);
+    return false;
+  }
 }
 
 /**
@@ -31,7 +105,8 @@ async function joinRoom(req, res) {
     const { name, captchaToken, roomId } = req.body;
 
     // Verify CAPTCHA
-    if (!verifyCaptcha(captchaToken)) {
+    const captchaValid = await verifyCaptcha(captchaToken);
+    if (!captchaValid) {
       return res.status(400).json({ error: 'CAPTCHA verification failed' });
     }
 
