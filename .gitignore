@@ -32,3 +32,6 @@ coverage/
 # Secrets
 *.pem
 *.key
+
+# Zip files
+*srczip.zip
