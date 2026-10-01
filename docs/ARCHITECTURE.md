@@ -29,6 +29,31 @@ All critical state is managed server-side:
 - Expert queue ordering is server-determined
 - Participants cannot forge identity, score, or permissions
 
+### Room vs Session
+
+The most important architectural distinction in VLITE:
+
+- **ROOM** = reusable container (name, LRN, question bank, scoring configuration).
+  Created once, reused indefinitely until explicitly deleted.
+- **SESSION** = one live execution of a room (participants, answers,
+  scores, leaderboard, results). A room runs Session 1, Session 2, ...
+- **QUESTIONS** = reusable bank owned by the room. Never recreated per session.
+- **RESULTS** = always belong to one specific session.
+
+Lifecycle:
+
+```
+CREATE ROOM → ADD QUESTIONS → START SESSION 1 → END → RESULTS SAVED
+→ START SESSION 2 (same questions) → END → RESULTS SAVED → ...
+```
+
+Session documents (`Session` collection) carry a 1-based `sessionNumber`
+per room plus a configuration snapshot, so later room edits cannot
+retroactively change a finished session. Participant sessions, answers
+and results all reference their session; leaderboards and participant
+counts are scoped to the live session (or the waiting pool between
+sessions), so previous sessions never leak into new ones.
+
 ### State Machine
 
 ```

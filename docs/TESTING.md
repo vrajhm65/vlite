@@ -43,6 +43,28 @@ cd server
 npm test
 ```
 
+Tests run with Jest (`--runInBand`) against an isolated database
+(`TEST_MONGODB_DB_NAME`, default `vlite_test`). A guard refuses to run
+unless the database name contains "test", so the real `vlite`
+database can never be wiped by the suite. Each file cleans up only
+its own prefixed rooms (`VLITE_TEST_*`).
+
+Socket-level end-to-end (requires the dev backend running):
+
+```bash
+cd server
+node tests/socket-e2e.mjs
+```
+
+Safe test-data cleanup (deletes ONLY rooms owned by the given host
+whose names start with the given prefix; refuses to run otherwise,
+safe to run twice):
+
+```bash
+cd server
+TEST_CLEANUP_HOST_EMAIL=tester@example.com TEST_CLEANUP_ROOM_PREFIX=VLITE_TEST_ npm run test:cleanup
+```
+
 ## Test Infrastructure
 
 - **Jest**: Test runner

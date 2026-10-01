@@ -1,6 +1,8 @@
 import Room from '../models/Room.js';
 import Question from '../models/Question.js';
+import ParticipantSession from '../models/ParticipantSession.js';
 import { createRoom, getRoomByLRN, getRoomById, updateRoomStatus, addQuestionToRoom } from '../services/roomService.js';
+import { listSessions, getSessionResults } from '../services/sessionService.js';
 import logger from '../utils/logger.js';
 import { body, validationResult } from 'express-validator';
 
@@ -9,7 +11,7 @@ import { body, validationResult } from 'express-validator';
  */
 async function verifyHostOwner(req, res, next) {
   try {
-    const room = await Room.findById(req.params.roomId);
+    const room = await Room.findOne({ _id: req.params.roomId, isDeleted: false });
     if (!room) {
       return res.status(404).json({ error: 'Room not found' });
     }
@@ -52,12 +54,23 @@ async function createRoomHandler(req, res) {
 }
 
 /**
- * Get all rooms owned by the authenticated host.
+ * Get all rooms owned by the authenticated host,
+ * each with question count and session count.
  */
 async function getMyRoomsHandler(req, res) {
   try {
-    const rooms = await Room.find({ host: req.user.userId, isDeleted: false }).sort({ createdAt: -1 });
-    res.json({ rooms });
+    const rooms = await Room.find({ host: req.user.userId, isDeleted: false }).sort({ createdAt: -1 }).lean();
+    const Session = (await import('../models/Session.js')).default;
+    const withCounts = await Promise.all(
+      rooms.map(async (room) => {
+        const [questionCount, sessionCount] = await Promise.all([
+          Question.countDocuments({ room: room._id, isActive: true }),
+          Session.countDocuments({ room: room._id }),
+        ]);
+        return { ...room, questionCount, sessionCount };
+      })
+    );
+    res.json({ rooms: withCounts });
   } catch (error) {
     logger.error(`Get my rooms error: ${error.message}`);
     res.status(500).json({ error: 'Failed to retrieve rooms' });
@@ -81,18 +94,203 @@ async function getRoomByLRNHandler(req, res) {
       return res.status(404).json({ error: 'Room not found' });
     }
 
+    const scope = room.currentSessionId
+      ? { room: room._id, session: room.currentSessionId }
+      : { room: room._id, session: null };
+    const participantCount = await ParticipantSession.countDocuments({
+      ...scope,
+      isConnected: true,
+    });
+    const questionCount = await Question.countDocuments({
+      room: room._id,
+      isActive: true,
+    });
+
     // Return public info only - not internal IDs
     res.json({
-      lrn: room.lrn,
-      name: room.name,
-      mode: room.mode,
-      status: room.status,
-      maxParticipants: room.maxParticipants,
-      participantCount: 0, // Will be populated by caller if needed
+      room: {
+        lrn: room.lrn,
+        name: room.name,
+        mode: room.mode,
+        status: room.status,
+        maxParticipants: room.maxParticipants,
+        participantCount,
+        questionCount,
+      },
     });
   } catch (error) {
     logger.error(`Get room error: ${error.message}`);
     res.status(500).json({ error: 'Failed to retrieve room' });
+  }
+}
+
+/**
+ * Update room configuration (host only).
+ * Only allowed when no session is live, so running
+ * sessions keep stable scoring rules.
+ */
+async function updateRoomHandler(req, res) {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const room = req.room;
+    if (room.status === 'active') {
+      return res.status(400).json({ error: 'Cannot edit a room while a session is live' });
+    }
+
+    const allowed = ['name', 'mode', 'negativeMarking', 'correctPoints', 'negativePoints', 'maxParticipants'];
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) room[key] = req.body[key];
+    }
+    await room.save();
+
+    logger.info(`Room updated: room=${room.lrn}`);
+    res.json({ room });
+  } catch (error) {
+    logger.error(`Update room error: ${error.message}`);
+    res.status(500).json({ error: 'Failed to update room' });
+  }
+}
+
+/**
+ * Delete a room (host only).
+ * Explicit destructive action: soft-deletes the room and removes
+ * its question bank. Session history (sessions, answers, results)
+ * is preserved. Ending a session never deletes the room.
+ */
+async function deleteRoomHandler(req, res) {
+  try {
+    const room = req.room;
+    if (room.status === 'active') {
+      return res.status(400).json({ error: 'Cannot delete a room while a session is live' });
+    }
+
+    room.isDeleted = true;
+    await room.save();
+    await Question.deleteMany({ room: room._id });
+
+    logger.info(`Room deleted: room=${room.lrn}`);
+    res.json({ message: 'Room deleted' });
+  } catch (error) {
+    logger.error(`Delete room error: ${error.message}`);
+    res.status(500).json({ error: 'Failed to delete room' });
+  }
+}
+
+/**
+ * Update a question (host only, only when no session is live).
+ */
+async function updateQuestionHandler(req, res) {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    if (req.room.status === 'active') {
+      return res.status(400).json({ error: 'Cannot edit questions while a session is live' });
+    }
+
+    const question = await Question.findOne({ _id: req.params.questionId, room: req.params.roomId });
+    if (!question) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+
+    const allowed = ['text', 'options', 'correctAnswerIndex', 'explanation', 'marks', 'durationSeconds', 'imageUrl', 'order', 'isActive'];
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) question[key] = req.body[key];
+    }
+    await question.save();
+
+    logger.info(`Question updated: room=${req.params.roomId} question=${question._id}`);
+    res.json({ question });
+  } catch (error) {
+    logger.error(`Update question error: ${error.message}`);
+    res.status(500).json({ error: 'Failed to update question' });
+  }
+}
+
+/**
+ * Delete a question (host only, only when no session is live).
+ */
+async function deleteQuestionHandler(req, res) {
+  try {
+    const question = await Question.findOne({ _id: req.params.questionId, room: req.params.roomId });
+    if (!question) {
+      return res.status(404).json({ error: 'Question not found' });
+    }
+
+    if (req.room.status === 'active') {
+      return res.status(400).json({ error: 'Cannot delete questions while a session is live' });
+    }
+
+    await Question.deleteOne({ _id: question._id });
+    await Room.findByIdAndUpdate(req.params.roomId, { $pull: { questions: question._id } });
+
+    logger.info(`Question deleted: room=${req.params.roomId} question=${question._id}`);
+    res.json({ message: 'Question deleted' });
+  } catch (error) {
+    logger.error(`Delete question error: ${error.message}`);
+    res.status(500).json({ error: 'Failed to delete question' });
+  }
+}
+
+/**
+ * List current participants (host only).
+ * Shows participants of the live session (or waiting pool).
+ */
+async function getParticipantsHandler(req, res) {
+  try {
+    const room = req.room;
+    const filter = room.currentSessionId
+      ? { room: room._id, session: room.currentSessionId }
+      : { room: room._id, session: null };
+
+    const participants = await ParticipantSession.find(filter)
+      .select('participantName score isConnected joinedAt')
+      .sort({ score: -1, participantName: 1 })
+      .lean();
+
+    res.json({ participants });
+  } catch (error) {
+    logger.error(`Get participants error: ${error.message}`);
+    res.status(500).json({ error: 'Failed to retrieve participants' });
+  }
+}
+
+/**
+ * List session history of a room (host only).
+ */
+async function getSessionsHandler(req, res) {
+  try {
+    const sessions = await listSessions(req.params.roomId);
+    res.json({ sessions });
+  } catch (error) {
+    logger.error(`Get sessions error: ${error.message}`);
+    res.status(500).json({ error: 'Failed to retrieve sessions' });
+  }
+}
+
+/**
+ * Get results of one specific session.
+ * Public: only rank, name and score are exposed.
+ */
+async function getSessionResultsHandler(req, res) {
+  try {
+    const data = await getSessionResults(req.params.roomId, req.params.sessionId);
+    const fullRoom = await Room.findById(req.params.roomId).select('lrn name').lean();
+    res.json({
+      room: fullRoom ? { lrn: fullRoom.lrn, name: fullRoom.name } : null,
+      session: data.session,
+      results: data.results,
+    });
+  } catch (error) {
+    logger.error(`Get session results error: ${error.message}`);
+    const status = error.message === 'Session not found' ? 404 : 500;
+    res.status(status).json({ error: error.message });
   }
 }
 
@@ -160,46 +358,57 @@ async function getQuestionsHandler(req, res) {
 }
 
 /**
- * Start session (host only).
+ * Start session via REST (host only).
+ * Delegates to the session service so reusable rooms,
+ * session documents, and participant assignment stay consistent.
+ * For live realtime updates the host should use Socket.IO;
+ * clients can then synchronize with session:sync.
  */
 async function startSessionHandler(req, res) {
   try {
     const room = req.room;
-    if (room.status !== 'waiting') {
-      return res.status(400).json({ error: 'Session already started or ended' });
+    if (room.status === 'active') {
+      return res.status(400).json({ error: 'A session is already live for this room' });
     }
 
-    room.status = 'active';
-    await room.save();
+    const { startSession } = await import('../services/sessionService.js');
+    const started = await startSession(room._id);
 
-    logger.info(`Session started: room=${room.lrn}`);
-    res.json({ room });
+    logger.info(`Session started via REST: room=${started.room.lrn}`);
+    res.json({ room: started.room, session: started.session });
   } catch (error) {
     logger.error(`Start session error: ${error.message}`);
-    res.status(500).json({ error: 'Failed to start session' });
+    res.status(400).json({ error: error.message });
   }
 }
 
 /**
- * End session (host only).
+ * End session via REST (host only).
  */
 async function endSessionHandler(req, res) {
   try {
     const room = req.room;
-    room.status = 'ended';
-    await room.save();
+    if (room.status !== 'active') {
+      return res.status(400).json({ error: 'No live session for this room' });
+    }
 
-    logger.info(`Session ended: room=${room.lrn}`);
-    res.json({ room });
+    const { endSession } = await import('../services/sessionService.js');
+    const ended = await endSession(room._id);
+
+    logger.info(`Session ended via REST: room=${ended.room.lrn}`);
+    res.json({ room: ended.room, session: ended.session });
   } catch (error) {
     logger.error(`End session error: ${error.message}`);
-    res.status(500).json({ error: 'Failed to end session' });
+    res.status(400).json({ error: error.message });
   }
 }
 
 /**
  * Get final results for a room.
  * Public: only rank, name and score are exposed.
+ * Scoped to the latest session so reused rooms show
+ * the most recent session's results. Use the session
+ * endpoint for a specific session's results.
  */
 async function getResultsHandler(req, res) {
   try {
@@ -208,9 +417,13 @@ async function getResultsHandler(req, res) {
       return res.status(404).json({ error: 'Room not found' });
     }
     const Result = (await import('../models/Result.js')).default;
-    const results = await Result.find({ room: room._id }).sort({ rank: 1 }).lean();
+    const Session = (await import('../models/Session.js')).default;
+    const latest = await Session.findOne({ room: room._id }).sort({ sessionNumber: -1 }).lean();
+    const filter = latest ? { room: room._id, session: latest._id } : { room: room._id };
+    const results = await Result.find(filter).sort({ rank: 1 }).lean();
     res.json({
       room: { lrn: room.lrn, name: room.name, status: room.status },
+      session: latest ? { sessionNumber: latest.sessionNumber, status: latest.status } : null,
       results: results.map((r) => ({
         rank: r.rank,
         participantName: r.participantName,
@@ -229,8 +442,15 @@ export {
   getMyRoomsHandler,
   getRoomByLRNHandler,
   getRoomHandler,
+  updateRoomHandler,
+  deleteRoomHandler,
   addQuestionHandler,
+  updateQuestionHandler,
+  deleteQuestionHandler,
   getQuestionsHandler,
+  getParticipantsHandler,
+  getSessionsHandler,
+  getSessionResultsHandler,
   startSessionHandler,
   endSessionHandler,
   getResultsHandler,

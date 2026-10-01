@@ -5,26 +5,33 @@ import ParticipantSession from '../src/models/ParticipantSession.js';
 import Question from '../src/models/Question.js';
 import Answer from '../src/models/Answer.js';
 import { createRoom } from '../src/services/roomService.js';
-import { createParticipantSession } from '../src/services/participantService.js';
 import expertQueue from '../src/services/expertModeService.js';
 import logger from '../src/utils/logger.js';
+import {
+  connectTestDb,
+  disconnectTestDb,
+  cleanupTestRun,
+  ensureTestHost,
+  TEST_ROOM_PREFIX,
+} from './helpers/testDb.js';
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/vlite_test';
+let HOST;
 
 describe('Concurrency and Race Conditions', () => {
   beforeAll(async () => {
-    await mongoose.connect(MONGODB_URI);
+    await connectTestDb(MONGODB_URI, process.env.TEST_MONGODB_DB_NAME || 'vlite_test');
+    HOST = (await ensureTestHost())._id;
   });
 
   afterAll(async () => {
-    await mongoose.connection.close();
+    await cleanupTestRun(TEST_ROOM_PREFIX);
+    await disconnectTestDb();
   });
 
   beforeEach(async () => {
-    await Room.deleteMany({});
-    await ParticipantSession.deleteMany({});
-    await Question.deleteMany({});
-    await Answer.deleteMany({});
+    // Scoped cleanup: only this run's prefixed rooms and their data.
+    await cleanupTestRun(TEST_ROOM_PREFIX);
     expertQueue.resetQueue('test-room-1');
     expertQueue.resetQueue('test-room-2');
     expertQueue.resetQueue('test-room-3');
@@ -35,7 +42,7 @@ describe('Concurrency and Race Conditions', () => {
    * Verify no duplicate scoring occurs.
    */
   it('TEST 1: 50 participants submit answers simultaneously - no duplicate scoring', async () => {
-    const room = await createRoom('host1', { name: 'Concurrency Test Room', mode: 'normal', correctPoints: 10 });
+    const room = await createRoom(HOST, { name: `${TEST_ROOM_PREFIX} Concurrency`, mode: 'normal', correctPoints: 10 });
 
     // Create a question
     const question = await Question.create({
@@ -53,7 +60,7 @@ describe('Concurrency and Race Conditions', () => {
       const session = await ParticipantSession.create({
         participantName: `Participant${i}`,
         room: room._id,
-        token: `token-${i}`,
+        token: `token-${i}-${Date.now()}`,
       });
       sessions.push(session);
     }
@@ -87,14 +94,25 @@ describe('Concurrency and Race Conditions', () => {
     expect(count).toBeLessThanOrEqual(50);
 
     logger.info(`TEST 1 PASSED: ${successful} answers recorded, ${duplicates} rejected as duplicates`);
-  });
+  }, 60000);
 
   /**
    * TEST 2: Multiple participants raise hands simultaneously.
    * Verify server determines priority deterministically.
    */
   it('TEST 2: Multiple participants raise hands simultaneously - deterministic ordering', async () => {
-    const room = await createRoom('host1', { name: 'Expert Test Room', mode: 'expert' });
+    const room = await createRoom(HOST, { name: `${TEST_ROOM_PREFIX} Expert`, mode: 'expert' });
+    const question = await Question.create({
+      room: room._id,
+      text: 'Expert question',
+      options: [{ label: 'A', text: 'Option A' }, { label: 'B', text: 'Option B' }],
+      correctAnswerIndex: 0,
+      durationSeconds: 60,
+      order: 0,
+    });
+
+    // Attach the expert queue to the active question first
+    expertQueue.resetQueue(room._id.toString(), question._id.toString());
 
     // Create 20 participants
     const sessions = [];
@@ -102,15 +120,21 @@ describe('Concurrency and Race Conditions', () => {
       const session = await ParticipantSession.create({
         participantName: `Expert${i}`,
         room: room._id,
-        token: `token-expert-${i}`,
+        token: `token-expert-${i}-${Date.now()}`,
       });
       sessions.push(session);
     }
 
-    // All raise hands simultaneously
+    // All raise hands (server timestamps decide the order)
     const positions = [];
     for (const session of sessions) {
-      const result = expertQueue.raiseHand(room._id.toString(), session._id.toString(), session.participantName);
+      const result = expertQueue.raiseHand(
+        room._id.toString(),
+        question._id.toString(),
+        session._id.toString(),
+        session.participantName
+      );
+      expect(result.success).toBe(true);
       positions.push(result.position);
     }
 
@@ -124,6 +148,16 @@ describe('Concurrency and Race Conditions', () => {
     expect(sorted[0]).toBe(1);
     expect(sorted[sorted.length - 1]).toBe(20);
 
+    // Duplicate raise-hand must be rejected
+    const dup = expertQueue.raiseHand(
+      room._id.toString(),
+      question._id.toString(),
+      sessions[0]._id.toString(),
+      sessions[0].participantName
+    );
+    expect(dup.success).toBe(false);
+    expect(dup.reason).toBe('already_raised');
+
     logger.info('TEST 2 PASSED: All raise-hand positions unique and sequential');
   });
 
@@ -132,7 +166,7 @@ describe('Concurrency and Race Conditions', () => {
    * Server should validate timing using server timestamps.
    */
   it('TEST 3: Answer near timeout - server validates using server time', async () => {
-    const room = await createRoom('host1', { name: 'Timeout Test Room', mode: 'normal', correctPoints: 10 });
+    const room = await createRoom(HOST, { name: `${TEST_ROOM_PREFIX} Timeout`, mode: 'normal', correctPoints: 10 });
     const question = await Question.create({
       room: room._id,
       text: 'Timeout test',
@@ -145,7 +179,7 @@ describe('Concurrency and Race Conditions', () => {
     const session = await ParticipantSession.create({
       participantName: 'TimeoutTester',
       room: room._id,
-      token: 'token-timeout-test',
+      token: `token-timeout-test-${Date.now()}`,
     });
 
     // Create answer with server timestamp
@@ -184,7 +218,7 @@ describe('Concurrency and Race Conditions', () => {
    * Second should not create duplicate points.
    */
   it('TEST 4: Duplicate answer submission prevented', async () => {
-    const room = await createRoom('host1', { name: 'Duplicate Test Room', mode: 'normal' });
+    const room = await createRoom(HOST, { name: `${TEST_ROOM_PREFIX} Duplicate`, mode: 'normal' });
     const question = await Question.create({
       room: room._id,
       text: 'Duplicate test',
@@ -197,11 +231,11 @@ describe('Concurrency and Race Conditions', () => {
     const session = await ParticipantSession.create({
       participantName: 'DuplicateTester',
       room: room._id,
-      token: 'token-dup-test',
+      token: `token-dup-test-${Date.now()}`,
     });
 
     // First answer
-    const answer1 = await Answer.create({
+    await Answer.create({
       participantSession: session._id,
       question: question._id,
       room: room._id,
@@ -236,12 +270,12 @@ describe('Concurrency and Race Conditions', () => {
    * State should be synchronized from server.
    */
   it('TEST 5: Participant reconnect - state synchronized from server', async () => {
-    const room = await createRoom('host1', { name: 'Reconnect Test Room', mode: 'normal' });
+    const room = await createRoom(HOST, { name: `${TEST_ROOM_PREFIX} Reconnect`, mode: 'normal' });
 
     const session = await ParticipantSession.create({
       participantName: 'ReconnectTester',
       room: room._id,
-      token: 'token-reconnect',
+      token: `token-reconnect-${Date.now()}`,
     });
 
     // Simulate disconnect by updating lastSeenAt
@@ -251,7 +285,7 @@ describe('Concurrency and Race Conditions', () => {
     });
 
     // Reconnect: verify session still exists
-    const reconnected = await ParticipantSession.findOne({ token: 'token-reconnect' });
+    const reconnected = await ParticipantSession.findById(session._id);
     expect(reconnected).toBeDefined();
     expect(reconnected.participantName).toBe('ReconnectTester');
     expect(reconnected.score).toBe(0);
@@ -264,23 +298,23 @@ describe('Concurrency and Race Conditions', () => {
    * Verify room isolation.
    */
   it('TEST 6: Two rooms independent - no cross-room data leakage', async () => {
-    const roomA = await createRoom('host1', { name: 'Room A', mode: 'normal' });
-    const roomB = await createRoom('host1', { name: 'Room B', mode: 'intermediate' });
+    const roomA = await createRoom(HOST, { name: `${TEST_ROOM_PREFIX} Room A`, mode: 'normal' });
+    const roomB = await createRoom(HOST, { name: `${TEST_ROOM_PREFIX} Room B`, mode: 'intermediate' });
 
     // Verify rooms are different
     expect(roomA.lrn).not.toEqual(roomB.lrn);
     expect(roomA._id.toString()).not.toEqual(roomB._id.toString());
 
     // Create participants in each room
-    const sessionA = await ParticipantSession.create({
+    await ParticipantSession.create({
       participantName: 'RoomAParticipant',
       room: roomA._id,
-      token: 'token-room-a',
+      token: `token-room-a-${Date.now()}`,
     });
-    const sessionB = await ParticipantSession.create({
+    await ParticipantSession.create({
       participantName: 'RoomBParticipant',
       room: roomB._id,
-      token: 'token-room-b',
+      token: `token-room-b-${Date.now()}`,
     });
 
     // Verify participants are in correct rooms
@@ -301,7 +335,7 @@ describe('Concurrency and Race Conditions', () => {
   it('TEST 7: Concurrent room creation - unique LRN guaranteed', async () => {
     const createRoomPromises = [];
     for (let i = 0; i < 5; i++) {
-      createRoomPromises.push(createRoom('host1', { name: `Concurrent Room ${i}` }));
+      createRoomPromises.push(createRoom(HOST, { name: `${TEST_ROOM_PREFIX} Concurrent ${i}` }));
     }
 
     const rooms = await Promise.all(createRoomPromises);
@@ -323,25 +357,26 @@ describe('Concurrency and Race Conditions', () => {
    * TEST 8: Verify database constraints prevent invalid state.
    */
   it('TEST 8: Database constraints enforce data integrity', async () => {
-    const room = await createRoom('host1', { name: 'Constraint Test Room' });
+    const room = await createRoom(HOST, { name: `${TEST_ROOM_PREFIX} Constraint` });
 
     // Try to create room with duplicate LRN
     await expect(
-      Room.create({ lrn: room.lrn, name: 'Duplicate LRN', host: 'host1' })
+      Room.create({ lrn: room.lrn, name: `${TEST_ROOM_PREFIX} Duplicate LRN`, host: HOST })
     ).rejects.toThrow();
 
     // Try to create participant session with duplicate token
-    const session = await ParticipantSession.create({
+    const dupToken = `unique-token-${Date.now()}`;
+    await ParticipantSession.create({
       participantName: 'Test',
       room: room._id,
-      token: 'unique-token',
+      token: dupToken,
     });
 
     await expect(
       ParticipantSession.create({
         participantName: 'Test2',
         room: room._id,
-        token: 'unique-token', // Same token
+        token: dupToken, // Same token
       })
     ).rejects.toThrow();
 

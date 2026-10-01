@@ -7,6 +7,7 @@ import HomePage from './pages/HomePage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import RegisterPage from './pages/RegisterPage.jsx';
 import HostDashboardPage from './pages/HostDashboardPage.jsx';
+import RoomPage from './pages/RoomPage.jsx';
 import JoinRoomPage from './pages/JoinRoomPage.jsx';
 import RoomWaitingPage from './pages/RoomWaitingPage.jsx';
 import ActiveSessionPage from './pages/ActiveSessionPage.jsx';
@@ -29,6 +30,14 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={['host']}>
                   <HostDashboardPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/host/rooms/:roomId"
+              element={
+                <ProtectedRoute allowedRoles={['host']}>
+                  <RoomPage />
                 </ProtectedRoute>
               }
             />

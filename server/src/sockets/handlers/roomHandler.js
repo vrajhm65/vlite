@@ -2,7 +2,7 @@ import Room from '../../models/Room.js';
 import ParticipantSession from '../../models/ParticipantSession.js';
 import Answer from '../../models/Answer.js';
 import Question from '../../models/Question.js';
-import Result from '../../models/Result.js';
+import Session from '../../models/Session.js';
 
 import {
   emitToRoom,
@@ -18,6 +18,7 @@ import {
 } from '../../services/scoringService.js';
 
 import expertQueue from '../../services/expertModeService.js';
+import { startSession, endSession } from '../../services/sessionService.js';
 import logger from '../../utils/logger.js';
 
 const EXPERT_ANSWER_SECONDS = Number(
@@ -75,17 +76,79 @@ function serializeQuestionForHost(question, timing) {
 }
 
 /**
+ * Build the Mongo filter for "participants of the current live
+ * session, or the waiting pool when no session is live".
+ *
+ * Previous sessions never leak into a new live session.
+ */
+function sessionScope(room) {
+  if (room.currentSessionId) {
+    return { room: room._id, session: room.currentSessionId };
+  }
+  return { room: room._id, session: null };
+}
+
+/**
+ * Broadcast the live participant count of a room.
+ *
+ * Count = participants currently connected in the live session
+ * (or waiting pool). Scores/leaderboard keep disconnected
+ * participants so reconnecting preserves their progress.
+ */
+async function broadcastParticipantCount(io, roomId) {
+  const room = await Room.findOne({ _id: roomId, isDeleted: false }).select(
+    '_id currentSessionId'
+  );
+  if (!room) return;
+
+  const participantCount = await ParticipantSession.countDocuments({
+    ...sessionScope(room),
+    isConnected: true,
+  });
+
+  await Room.findByIdAndUpdate(room._id, { participantCount });
+
+  emitToRoom(io, roomId, 'participant:count', {
+    roomId,
+    participantCount,
+  });
+
+  return participantCount;
+}
+
+/**
  * Build current room state for a socket.
  */
 async function getRoomState(room, socket) {
+  const scope = sessionScope(room);
+  const participantCount = await ParticipantSession.countDocuments({
+    ...scope,
+    isConnected: true,
+  });
+
+  let sessionInfo = null;
+  if (room.currentSessionId) {
+    const live = await Session.findById(room.currentSessionId)
+      .select('sessionNumber status')
+      .lean();
+    if (live) {
+      sessionInfo = {
+        sessionId: String(room.currentSessionId),
+        sessionNumber: live.sessionNumber,
+        sessionStatus: live.status,
+      };
+    }
+  }
+
   const state = {
     roomId: room._id,
     lrn: room.lrn,
     name: room.name,
     status: room.status,
     mode: room.mode,
-    participantCount: room.participantCount,
+    participantCount,
     maxParticipants: room.maxParticipants,
+    session: sessionInfo,
     activeQuestion: null,
   };
 
@@ -116,6 +179,8 @@ async function getRoomState(room, socket) {
       timing
     );
   }
+
+  state.totalQuestions = room.questions.length;
 
   return state;
 }
@@ -216,22 +281,16 @@ async function handleJoinRoom(io, socket, { roomId }) {
   await joinRoomSocket(socket, roomId);
 
   /**
-   * Refresh participant count from DB.
+   * Refresh participant count from DB (scoped to the current
+   * live session, or the waiting pool) and broadcast it live.
    */
-  const participantCount = await ParticipantSession.countDocuments({
-    room: roomId,
-  });
-
-  if (room.participantCount !== participantCount) {
-    room.participantCount = participantCount;
-    await room.save();
-  }
+  const participantCount = await broadcastParticipantCount(io, roomId);
 
   const updatedRoom = await Room.findById(roomId);
 
   const state = await getRoomState(updatedRoom, socket);
 
-  state.participantCount = participantCount;
+  state.participantCount = participantCount ?? state.participantCount;
 
   socket.emit('room:state', state);
 
@@ -306,7 +365,10 @@ async function authorizeHost(socket, roomId) {
 }
 
 /**
- * Host starts session.
+ * Host starts a new session.
+ *
+ * Rooms are reusable: a new session can start whenever no
+ * session is currently live (status waiting or ended).
  */
 async function handleStartSession(io, socket, { roomId }) {
   const room = await authorizeHost(socket, roomId);
@@ -315,49 +377,50 @@ async function handleStartSession(io, socket, { roomId }) {
     return;
   }
 
-  if (room.status !== 'waiting') {
+  if (room.status === 'active') {
     socket.emit('vlite:error', {
-      code: 'INVALID_ROOM_STATUS',
-      message: 'Session cannot be started from its current state.',
+      code: 'SESSION_ALREADY_LIVE',
+      message: 'A session is already live for this room.',
     });
     return;
   }
 
-  const questionCount = await Question.countDocuments({
-    room: roomId,
-    isActive: true,
-  });
-
-  if (questionCount === 0) {
+  let started;
+  try {
+    started = await startSession(roomId);
+  } catch (error) {
     socket.emit('vlite:error', {
-      code: 'NO_QUESTIONS',
-      message: 'Add at least one question before starting the session.',
+      code: 'SESSION_START_FAILED',
+      message: error.message,
     });
     return;
   }
-
-  room.status = 'active';
-  room.activeQuestionId = null;
-  room.questionStartedAt = null;
-  room.questionEndsAt = null;
-  room.currentQuestionOrder = -1;
-
-  await room.save();
 
   expertQueue.resetQueue(roomId, null);
 
+  // Fresh state for everyone in the room
+  await broadcastParticipantCount(io, roomId);
+  await updateLeaderboard(io, roomId);
+
   emitToRoom(io, roomId, 'session:start', {
-    roomId: room._id,
-    lrn: room.lrn,
-    status: room.status,
-    mode: room.mode,
+    roomId: started.room._id,
+    lrn: started.room.lrn,
+    status: started.room.status,
+    mode: started.room.mode,
+    sessionId: started.session._id,
+    sessionNumber: started.session.sessionNumber,
   });
 
-  logger.info(`Session started: room=${room.lrn}`);
+  logger.info(
+    `Session started: room=${started.room.lrn} session=${started.session.sessionNumber}`
+  );
 }
 
 /**
- * Host ends session.
+ * Host ends the live session.
+ *
+ * Results are persisted per session. The room (and its
+ * question bank) is preserved and can start a new session.
  */
 async function handleEndSession(io, socket, { roomId }) {
   const room = await authorizeHost(socket, roomId);
@@ -366,56 +429,34 @@ async function handleEndSession(io, socket, { roomId }) {
     return;
   }
 
-  if (room.status === 'ended') {
+  if (room.status !== 'active') {
     return;
   }
 
-  room.status = 'ended';
-  room.activeQuestionId = null;
-  room.questionStartedAt = null;
-  room.questionEndsAt = null;
+  let ended;
+  try {
+    ended = await endSession(roomId);
+  } catch (error) {
+    socket.emit('vlite:error', {
+      code: 'SESSION_END_FAILED',
+      message: error.message,
+    });
+    return;
+  }
 
-  await room.save();
-
+  clearRoomTimer(roomId);
   expertQueue.resetQueue(roomId, null);
 
-  // Persist final results
-  await persistResults(room);
-
   emitToRoom(io, roomId, 'session:end', {
-    roomId: room._id,
+    roomId: ended.room._id,
+    sessionId: ended.session._id,
+    sessionNumber: ended.session.sessionNumber,
     endedAt: new Date().toISOString(),
   });
 
-  logger.info(`Session ended: room=${room.lrn}`);
-}
-
-/**
- * Persist final results to the Result collection.
- */
-async function persistResults(room) {
-  const participants = await ParticipantSession.find({
-    room: room._id,
-  })
-    .select('_id participantName score')
-    .sort({ score: -1, participantName: 1, _id: 1 })
-    .lean();
-
-  const results = participants.map((p, index) => ({
-    room: room._id,
-    participantSession: p._id,
-    participantName: p.participantName,
-    score: p.score,
-    totalQuestions: room.questions.length,
-    correctAnswers: 0,
-    wrongAnswers: 0,
-    rank: index + 1,
-  }));
-
-  if (results.length > 0) {
-    await Result.insertMany(results);
-    logger.info(`Results persisted: room=${room.lrn} count=${results.length}`);
-  }
+  logger.info(
+    `Session ended: room=${ended.room.lrn} session=${ended.session.sessionNumber}`
+  );
 }
 
 /**
@@ -495,6 +536,7 @@ async function handleNextQuestion(io, socket, { roomId, questionId }) {
     }),
     questionStartedAt: now.toISOString(),
     questionEndsAt: endsAt.toISOString(),
+    totalQuestions: room.questions.length,
   });
 
   /**
@@ -798,6 +840,7 @@ async function handleAnswerSubmit(
       participantSession: session._id,
       question: questionId,
       room: roomId,
+      session: session.session || null,
       selectedOptionIndex,
       isCorrect,
       pointsAwarded: points,
@@ -867,12 +910,17 @@ async function handleAnswerSubmit(
 }
 
 /**
- * Leaderboard.
+ * Leaderboard, scoped to the current live session
+ * (or the waiting pool when no session is live).
  */
 async function updateLeaderboard(io, roomId) {
-  const participants = await ParticipantSession.find({
-    room: roomId,
-  })
+  const room = await Room.findOne({ _id: roomId, isDeleted: false }).select(
+    '_id currentSessionId'
+  );
+
+  const filter = room ? sessionScope(room) : { room: roomId };
+
+  const participants = await ParticipantSession.find(filter)
     .select('_id participantName score')
     .sort({
       score: -1,
@@ -1035,7 +1083,6 @@ async function handleSync(io, socket, { roomId }) {
   }
 
   const state = await getRoomState(room, socket);
-  state.participantCount = await ParticipantSession.countDocuments({ room: roomId });
 
   socket.emit('room:state', state);
 
@@ -1072,6 +1119,8 @@ export {
   handleRaiseHand,
   handleSync,
   updateLeaderboard,
+  broadcastParticipantCount,
+  sessionScope,
   clearRoomTimer,
   questionTimers,
 };

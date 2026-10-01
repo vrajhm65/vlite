@@ -77,6 +77,27 @@ const roomSchema = new mongoose.Schema(
     },
 
     // ----------------------------------------------------
+    // REUSABLE-ROOM SESSION TRACKING
+    // ----------------------------------------------------
+    // A room is a reusable container. Each live event creates
+    // a Session document; session-specific state (participants,
+    // answers, results) is scoped to the current session.
+
+    // Total sessions ever started from this room (1-based counter)
+    sessionCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    // Currently live session, or null between sessions
+    currentSessionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Session',
+      default: null,
+    },
+
+    // ----------------------------------------------------
     // SERVER-AUTHORITATIVE LIVE QUESTION STATE
     // ----------------------------------------------------
 

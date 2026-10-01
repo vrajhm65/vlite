@@ -16,8 +16,9 @@ This ensures VLITE never accidentally accesses other databases in the same Atlas
 **Room:** `lrn: 1` (unique), `host: 1`, `status: 1`
 **Question:** `room: 1, order: 1`, `room: 1, isActive: 1`
 **ParticipantSession:** `token: 1` (unique), `room: 1`, `room: 1, token: 1` (unique)
-**Answer:** `participantSession: 1, question: 1` (unique, prevents duplicate answers)
-**Result:** `room: 1, score: -1`, `room: 1, rank: 1`
+**Answer:** `participantSession: 1, question: 1` (unique, prevents duplicate answers), `room: 1, session: 1`
+**Result:** `room: 1, score: -1`, `room: 1, rank: 1`, `room: 1, session: 1, rank: 1`
+**Session:** `room: 1, sessionNumber: -1`, `room: 1, sessionNumber: 1` (unique)
 
 ### User
 
@@ -52,8 +53,15 @@ Stores room configurations.
   correctPoints: Number,
   negativePoints: Number,
   status: String (enum: ['waiting', 'active', 'paused', 'ended']),
-  questions: [ObjectId (ref: Question)],
+  questions: [ObjectId (ref: Question)],  // reusable question bank
   maxParticipants: Number,
+  participantCount: Number,  // live count, updated realtime
+  sessionCount: Number,  // total sessions ever started
+  currentSessionId: ObjectId (ref: Session),  // live session or null
+  activeQuestionId: ObjectId (ref: Question),  // server-authoritative live state
+  currentQuestionOrder: Number,
+  questionStartedAt: Date,
+  questionEndsAt: Date,
   isDeleted: Boolean,
   createdAt: Date,
   updatedAt: Date
@@ -90,14 +98,40 @@ Stores questions within rooms.
 - `room: 1, order: 1` - For ordered question listing
 - `room: 1, isActive: 1` - For active questions
 
+### Session
+
+One live execution of a room.
+
+```javascript
+{
+  room: ObjectId (ref: Room),
+  host: ObjectId (ref: User),
+  sessionNumber: Number,  // 1-based within its room
+  status: String (enum: ['active', 'ended']),
+  mode, negativeMarking, correctPoints, negativePoints,  // snapshot at start
+  questionCount: Number,
+  participantCount: Number,
+  startedAt: Date,
+  endedAt: Date
+}
+```
+
+**Indexes:**
+- `room: 1, sessionNumber: -1` - session history listing
+- `room: 1, sessionNumber: 1` (unique) - one Session N per room
+- `host: 1`, `status: 1`
+
 ### ParticipantSession
 
-Stores participant sessions.
+Stores participant sessions. Each join creates a fresh document
+scoped to the live session (or the waiting pool between sessions),
+so scores always start fresh per session.
 
 ```javascript
 {
   participantName: String,
   room: ObjectId (ref: Room),
+  session: ObjectId (ref: Session),  // live session, or null while waiting
   token: String (unique, indexed),  // JWT token
   score: Number,
   answeredQuestions: [ObjectId (ref: Question)],
@@ -114,6 +148,7 @@ Stores participant sessions.
 - `token: 1` (unique) - For session validation
 - `room: 1` - For finding participants in room
 - `room: 1, token: 1` (unique) - For session verification
+- `room: 1, session: 1` - For live-session scoped queries
 
 ### Answer
 
@@ -124,6 +159,7 @@ Stores participant answers.
   participantSession: ObjectId (ref: ParticipantSession),
   question: ObjectId (ref: Question),
   room: ObjectId (ref: Room),
+  session: ObjectId (ref: Session),  // live session the answer belongs to
   selectedOptionIndex: Number,
   isCorrect: Boolean,
   pointsAwarded: Number,
@@ -134,14 +170,17 @@ Stores participant answers.
 
 **Indexes:**
 - `participantSession: 1, question: 1` (unique) - Prevent duplicate answers
+- `room: 1, session: 1` - Per-session answer queries
 
 ### Result
 
-Stores final session results.
+Stores final session results. Each result belongs to one session.
 
 ```javascript
 {
   room: ObjectId (ref: Room),
+  session: ObjectId (ref: Session),  // live session these results belong to
+  sessionNumber: Number,
   participantSession: ObjectId (ref: ParticipantSession),
   participantName: String,
   score: Number,
@@ -156,6 +195,7 @@ Stores final session results.
 **Indexes:**
 - `room: 1, score: -1` - For leaderboard queries
 - `room: 1, rank: 1` - For ranking lookups
+- `room: 1, session: 1, rank: 1` - For per-session results
 
 ## Storage Efficiency
 

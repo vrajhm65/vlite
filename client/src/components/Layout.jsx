@@ -35,6 +35,7 @@ function Layout({ children }) {
       <main className="app-main">{children}</main>
       <footer className="app-footer">
         <p>VLITE &copy; {new Date().getFullYear()} - Live Interactive Session Platform</p>
+        <p className="footer-credit">Built by VR</p>
       </footer>
     </div>
   );

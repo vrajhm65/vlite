@@ -5,6 +5,7 @@ real-time scoring, and multi-participant concurrency.
 
 ## Features
 
+- **Reusable rooms**: Create a room and question bank once, run unlimited sessions (Session 1, 2, ...) with separate per-session results and history
 - **Multi-room concurrency**: Multiple live rooms running simultaneously with full isolation
 - **Real-time scoring**: Server-authoritative scoring with Normal, Intermediate, and Expert modes
 - **Expert mode**: Priority-based answering with server-side raise-hand queue
@@ -65,12 +66,22 @@ http://localhost:5174/
 
 ```bash
 cd server
-npm test
+npm test            # Jest: isolation, concurrency, session reuse (isolated vlite_test DB)
+node tests/socket-e2e.mjs   # Live socket E2E against a running backend
+```
+
+Safe test-data cleanup (only deletes rooms of the given host with the
+given name prefix; refuses otherwise):
+
+```bash
+cd server
+TEST_CLEANUP_HOST_EMAIL=tester@example.com TEST_CLEANUP_ROOM_PREFIX=VLITE_TEST_ npm run test:cleanup
 ```
 
 Manual E2E flow: register host → login → create room (4-digit LRN) →
-add questions → start session → join as participant (Name + LRN) →
-answer live → leaderboard → end session → results.
+add questions once → start Session 1 → join as participant (Name + LRN) →
+answer live → leaderboard → end session → results → start Session 2
+from the same room (no question recreation).
 
 ## Production Build
 
@@ -96,15 +107,22 @@ See `docs/DEPLOYMENT.md`.
 - `POST /api/auth/host` - Create host account
 - `POST /api/auth/login` - Host login
 - `GET /api/auth/me` - Current host (authenticated)
-- `GET /api/rooms` - List own rooms (host)
+- `GET /api/rooms` - List own rooms with question/session counts (host)
 - `POST /api/rooms` - Create room (host)
-- `GET /api/rooms/lrn/:lrn` - Room lookup by LRN (public)
+- `GET /api/rooms/lrn/:lrn` - Room lookup by LRN (public, with live counts)
 - `GET /api/rooms/:roomId` - Room details (host owner)
+- `PATCH /api/rooms/:roomId` - Update room config, blocked while live (host owner)
+- `DELETE /api/rooms/:roomId` - Delete room + question bank, preserves history (host owner)
 - `POST /api/rooms/:roomId/questions` - Add question (host owner)
 - `GET /api/rooms/:roomId/questions` - List questions (host owner)
+- `PUT /api/rooms/:roomId/questions/:questionId` - Edit question, blocked while live (host owner)
+- `DELETE /api/rooms/:roomId/questions/:questionId` - Delete question, blocked while live (host owner)
+- `GET /api/rooms/:roomId/participants` - Current participants (host owner)
+- `GET /api/rooms/:roomId/sessions` - Session history (host owner)
+- `GET /api/rooms/:roomId/sessions/:sessionId/results` - One session's results (public, rank/name/score)
 - `POST /api/rooms/:roomId/start` - Start session (host owner)
 - `POST /api/rooms/:roomId/end` - End session (host owner)
-- `GET /api/rooms/:roomId/results` - Final results (public, rank/name/score)
+- `GET /api/rooms/:roomId/results` - Latest session results (public, rank/name/score)
 - `POST /api/participants/join` - Join with `{ participantName, lrn }` (no CAPTCHA)
 
 ## Socket.IO Events

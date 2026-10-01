@@ -31,15 +31,11 @@ async function joinRoom(req, res) {
       return res.status(400).json({ error: 'Invalid LRN format. Must be 4 digits.' });
     }
 
-    // Find room by LRN
+    // Find room by LRN (joinability is verified server-side
+    // when the participant session is created)
     const room = await Room.findOne({ lrn, isDeleted: false });
     if (!room) {
       return res.status(404).json({ error: 'Room not found' });
-    }
-
-    // Verify room is joinable
-    if (room.status === 'ended') {
-      return res.status(400).json({ error: 'This session has ended' });
     }
 
     // Create session

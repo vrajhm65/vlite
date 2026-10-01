@@ -5,6 +5,8 @@ const answerSchema = new mongoose.Schema(
     participantSession: { type: mongoose.Schema.Types.ObjectId, ref: 'ParticipantSession', required: true },
     question: { type: mongoose.Schema.Types.ObjectId, ref: 'Question', required: true },
     room: { type: mongoose.Schema.Types.ObjectId, ref: 'Room', required: true },
+    // The live session this answer belongs to.
+    session: { type: mongoose.Schema.Types.ObjectId, ref: 'Session', default: null },
     selectedOptionIndex: { type: Number, required: true },
     isCorrect: { type: Boolean, required: true },
     pointsAwarded: { type: Number, default: 0 },
@@ -16,5 +18,6 @@ const answerSchema = new mongoose.Schema(
 
 // Prevent duplicate answers per participant per question
 answerSchema.index({ participantSession: 1, question: 1 }, { unique: true });
+answerSchema.index({ room: 1, session: 1 });
 
 export default mongoose.model('Answer', answerSchema);

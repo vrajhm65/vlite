@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest --passWithNoTests",
+    "test": "node --experimental-vm-modules ../node_modules/jest/bin/jest.js --runInBand --passWithNoTests",
+    "test:cleanup": "node scripts/test-cleanup.mjs",
+    "test:e2e": "node tests/socket-e2e.mjs",
     "lint": "echo 'Add eslint'"
   },
   "keywords": [

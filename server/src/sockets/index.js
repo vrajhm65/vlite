@@ -13,6 +13,7 @@ import {
   handleAnswerSubmit,
   handleRaiseHand,
   handleSync,
+  broadcastParticipantCount,
 } from './handlers/roomHandler.js';
 
 import logger from '../utils/logger.js';
@@ -176,14 +177,18 @@ function initSocketIO(io) {
         `Socket disconnected: ${socket.id} role=${socket.user?.role} reason=${reason}`
       );
 
-      // Mark participant as disconnected
+      // Mark participant as disconnected and update live count
       if (socket.user?.role === 'participant' && socket.participantSessionId) {
         try {
           const ParticipantSession = (await import('../models/ParticipantSession.js')).default;
-          await ParticipantSession.findByIdAndUpdate(
+          const session = await ParticipantSession.findByIdAndUpdate(
             socket.participantSessionId,
-            { isConnected: false, socketId: '' }
+            { isConnected: false, socketId: '' },
+            { new: true }
           );
+          if (session && socket.roomId) {
+            await broadcastParticipantCount(io, socket.roomId);
+          }
         } catch (error) {
           logger.error(`Disconnect handling error: ${error.message}`);
         }

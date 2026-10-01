@@ -11,16 +11,26 @@ import logger from '../utils/logger.js';
  * Server creates and owns the session - client cannot forge.
  */
 async function createParticipantSession(name, roomId) {
-  // Verify room exists and is joinable
-  const room = await Room.findById(roomId);
+  // Verify room exists and is joinable.
+  // Reusable rooms accept participants between sessions too;
+  // only deleted rooms (and full live sessions) refuse joins.
+  const room = await Room.findOne({ _id: roomId, isDeleted: false });
   if (!room) throw new Error('Room not found');
-  if (room.status === 'ended') throw new Error('Room session has ended');
-  if (room.status === 'active' && room.participantCount >= room.maxParticipants) {
-    throw new Error('Room is full');
+
+  // Scope capacity to the current live session (or the waiting pool).
+  const scope = room.currentSessionId
+    ? { room: roomId, session: room.currentSessionId }
+    : { room: roomId, session: null };
+
+  if (room.status === 'active') {
+    const liveCount = await ParticipantSession.countDocuments(scope);
+    if (liveCount >= room.maxParticipants) {
+      throw new Error('Room is full');
+    }
   }
 
   // Check participant count
-  const currentCount = await ParticipantSession.countDocuments({ room: roomId });
+  const currentCount = await ParticipantSession.countDocuments(scope);
   if (currentCount >= room.maxParticipants) {
     throw new Error('Room has reached maximum participants');
   }
@@ -36,6 +46,7 @@ async function createParticipantSession(name, roomId) {
   const session = await ParticipantSession.create({
     participantName: name,
     room: roomId,
+    session: room.currentSessionId || null,
     token,
     socketId: '',
   });
