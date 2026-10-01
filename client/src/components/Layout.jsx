@@ -22,7 +22,9 @@ function Layout({ children }) {
           <Link to="/" className={location.pathname === '/' ? 'active' : ''}>Home</Link>
           {user ? (
             <>
-              <Link to="/host/dashboard" className={location.pathname.startsWith('/host') ? 'active' : ''}>Dashboard</Link>
+              {user.role === 'host' && (
+                <Link to="/host/dashboard" className={location.pathname.startsWith('/host') ? 'active' : ''}>Dashboard</Link>
+              )}
               <button onClick={handleLogout} className="btn-logout">Logout</button>
             </>
           ) : (

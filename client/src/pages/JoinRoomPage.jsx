@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext.jsx';
 import api from '../services/api.js';
 
 function JoinRoomPage() {
@@ -8,6 +9,7 @@ function JoinRoomPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { loginParticipant } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -20,7 +22,15 @@ function JoinRoomPage() {
         lrn,
       });
 
-      localStorage.setItem('vlite_token', res.data.token);
+      loginParticipant(
+        {
+          participantName: res.data.participantName,
+          roomId: res.data.roomId,
+          lrn: res.data.lrn,
+          sessionId: res.data.sessionId,
+        },
+        res.data.token
+      );
       navigate(`/session/${res.data.roomId}`);
     } catch (err) {
       setError(err.message || 'Failed to join room');

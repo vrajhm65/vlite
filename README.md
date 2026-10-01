@@ -1,95 +1,65 @@
 # VLITE - Live Interactive Session Platform
 
-A production-ready web application for live interactive sessions with multiple rooms, real-time scoring, and multi-participant concurrency.
+Live interactive sessions (quiz, IQ, aptitude, MCQ) with multiple simultaneous rooms,
+real-time scoring, and multi-participant concurrency.
 
 ## Features
 
 - **Multi-room concurrency**: Multiple live rooms running simultaneously with full isolation
 - **Real-time scoring**: Server-authoritative scoring with Normal, Intermediate, and Expert modes
-- **Expert mode**: Priority-based answering with raise-hand queue
+- **Expert mode**: Priority-based answering with server-side raise-hand queue
 - **Negative marking**: Configurable per room
-- **Server-authoritative**: Client timers are display only; server determines all scoring
+- **Server-authoritative**: Client timers are display only; server determines scoring, timing, priority
 - **Mobile-first**: Responsive design for phones, tablets, and desktops
-- **Network resilient**: Socket.IO reconnection and state synchronization
-- **Session cleanup**: Automatic cleanup of stale sessions
-- **Image storage**: Cloudinary integration for question images
-- **Rate limiting**: Configurable per endpoint
-- **Load testing**: Built-in load testing tooling
+- **Network resilient**: Socket.IO reconnection, state sync (`session:sync`), refresh recovery
+- **Session cleanup**: Automatic cleanup of stale sessions (historical results preserved)
 
 ## Architecture
 
 ```
-server/    - Node.js/Express backend with Socket.IO
-client/    - React frontend with Vite
+server/    - Node.js + Express + Socket.IO + Mongoose (MongoDB Atlas, database: vlite)
+client/    - React + Vite (dev proxied through Vite to the backend)
 docs/      - Documentation
 ```
 
-## Quick Start
+## Tech Stack
+
+- Frontend: React 18, React Router, Vite 7, Socket.IO client, Axios
+- Backend: Node.js, Express, Socket.IO, Mongoose, JWT, Helmet, express-rate-limit
+- Database: MongoDB Atlas (`vlite` database)
+
+## Local Setup
 
 ### Prerequisites
 
 - Node.js 18+
-- MongoDB Atlas cluster
-- (Optional) reCAPTCHA v3 keys
-- (Optional) Cloudinary account
+- MongoDB Atlas cluster (or local MongoDB)
 
-### Setup
+### Environment Setup
 
-1. Clone repository: `git clone <repo-url>`
-2. Install dependencies: `npm run install:all`
-3. Create `.env` files:
-   - `server/.env` - Copy from `server/.env.example`
-   - `client/.env` - Copy from `client/.env.example`
-4. Configure MongoDB URI in `server/.env`
-5. Start backend: `cd server && npm run dev`
-6. Start frontend: `cd client && npm run dev`
+1. Copy `server/.env.example` to `server/.env` and set:
+   - `MONGODB_URI` - Your MongoDB connection string (required)
+   - `JWT_SECRET` - A long random secret, 64+ characters (required)
+   - `MONGODB_DB_NAME=vlite` (default)
+2. `client/.env` can stay empty for development (Vite proxies `/api` and
+   `/socket.io` to the backend). See `client/.env.example`.
 
-### Environment Variables
+See `docs/ENVIRONMENT.md` for all variables.
 
-See `docs/ENVIRONMENT.md` for all required variables.
+### Run (ONE command)
 
-### Required Configuration
+```bash
+cd "C:\Vlite\Vlite app"
+npm run dev
+```
 
-**Before running, configure these in `server/.env`:**
-- `MONGODB_URI` - Your MongoDB Atlas connection string
-- `JWT_SECRET` - A long random secret (64+ characters)
-- `MONGODB_DB_NAME` - Database name (default: `vlite`)
+This starts both backend (port 5000) and frontend (port 5174).
 
-## API Endpoints
+### Open (ONE URL)
 
-- `POST /api/auth/login` - Host login
-- `POST /api/auth/host` - Create host account
-- `GET /api/auth/me` - Get current user
-- `POST /api/rooms` - Create room (host only)
-- `GET /api/rooms/lrn/:lrn` - Get room by LRN
-- `POST /api/rooms/:roomId/questions` - Add question (host only)
-- `GET /api/rooms/:roomId/questions` - Get questions (host only)
-- `POST /api/rooms/:roomId/start` - Start session (host only)
-- `POST /api/rooms/:roomId/end` - End session (host only)
-- `POST /api/participants/join` - Join room as participant
-
-## Socket.IO Events
-
-### Client → Server
-
-- `room:join` - Join a room-scoped room
-- `session:start` - Start session (host)
-- `session:end` - End session (host)
-- `question:next` - Move to next question (host)
-- `answer:submit` - Submit an answer (participant)
-- `expert:raise-hand` - Raise hand for priority (expert mode)
-
-### Server → Client
-
-- `room:state` - Current room state
-- `room:joined` - Joined confirmation
-- `session:start` - Session started
-- `question:start` - New question
-- `timer:tick` - Timer update
-- `leaderboard:update` - Updated leaderboard
-- `answer:result` - Answer result
-- `session:end` - Session ended
-- `error` - Error event
+```
+http://localhost:5174/
+```
 
 ## Testing
 
@@ -98,31 +68,63 @@ cd server
 npm test
 ```
 
-Load testing:
+Manual E2E flow: register host → login → create room (4-digit LRN) →
+add questions → start session → join as participant (Name + LRN) →
+answer live → leaderboard → end session → results.
+
+## Production Build
+
 ```bash
-TEST_PARTICIPANTS=50 TEST_ROOMS=3 node tests/load-test.js
+cd client
+npm run build
 ```
 
-## Load Testing
+In production, set `VITE_API_URL=https://<backend>/api` and
+`VITE_SOCKET_URL=https://<backend>` in `client/.env` before building.
 
-See `docs/LOAD_TESTING.md` for testing plan.
+## Deployment
 
-## Scaling
+See `docs/DEPLOYMENT.md`.
 
-See `docs/SCALING.md` for scaling architecture.
+- Frontend: Vercel / Netlify (serve `client/dist`)
+- Backend: Render / Railway / Fly.io / VPS (`node src/server.js`)
+- Database: MongoDB Atlas
+- Set `CLIENT_URL` / `ALLOWED_ORIGINS`, `MONGODB_URI`, `JWT_SECRET` on the backend.
 
-## Documentation
+## API Endpoints
 
-- `docs/ARCHITECTURE.md` - System architecture
-- `docs/SETUP.md` - Setup guide
-- `docs/DATABASE.md` - Database design
-- `docs/REALTIME.md` - Real-time architecture
-- `docs/SECURITY.md` - Security details
-- `docs/DEPLOYMENT.md` - Deployment instructions
-- `docs/TESTING.md` - Testing guide
-- `docs/LOAD_TESTING.md` - Load testing plan
-- `docs/ENVIRONMENT.md` - Environment variables
-- `docs/SCALING.md` - Scaling architecture
+- `POST /api/auth/host` - Create host account
+- `POST /api/auth/login` - Host login
+- `GET /api/auth/me` - Current host (authenticated)
+- `GET /api/rooms` - List own rooms (host)
+- `POST /api/rooms` - Create room (host)
+- `GET /api/rooms/lrn/:lrn` - Room lookup by LRN (public)
+- `GET /api/rooms/:roomId` - Room details (host owner)
+- `POST /api/rooms/:roomId/questions` - Add question (host owner)
+- `GET /api/rooms/:roomId/questions` - List questions (host owner)
+- `POST /api/rooms/:roomId/start` - Start session (host owner)
+- `POST /api/rooms/:roomId/end` - End session (host owner)
+- `GET /api/rooms/:roomId/results` - Final results (public, rank/name/score)
+- `POST /api/participants/join` - Join with `{ participantName, lrn }` (no CAPTCHA)
+
+## Socket.IO Events
+
+Client → server: `room:join`, `session:start`, `session:end`,
+`question:next`, `answer:submit`, `expert:raise-hand`, `session:sync`, `room:leave`
+
+Server → room: `room:state`, `session:start`, `question:start`,
+`question:end`, `leaderboard:update`, `answer:result`, `expert:queue`,
+`expert:raised`, `session:end`, `vlite:error`
+
+## Security Notes
+
+- JWT authentication for hosts and participants; role + room ownership
+  verified server-side on every HTTP and Socket.IO action.
+- All scoring, timing, correctness, and expert priority computed server-side.
+- `correctAnswerIndex` is never sent to participants.
+- Duplicate answers rejected via application check + unique DB index.
+- Rate limiting, Helmet, CORS allowlist, 1MB JSON limit, input validation.
+- Never commit `.env` files. No secrets in frontend code.
 
 ## License
 

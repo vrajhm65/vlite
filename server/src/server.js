@@ -15,8 +15,9 @@ async function main() {
 
   const io = new Server(server, {
     cors: {
-      origin: config.clientUrl,
+      origin: config.allowedOrigins,
       methods: ['GET', 'POST'],
+      credentials: true,
     },
     maxHttpBufferSize: 1e6,
     pingTimeout: 60000,

@@ -52,6 +52,19 @@ async function createRoomHandler(req, res) {
 }
 
 /**
+ * Get all rooms owned by the authenticated host.
+ */
+async function getMyRoomsHandler(req, res) {
+  try {
+    const rooms = await Room.find({ host: req.user.userId, isDeleted: false }).sort({ createdAt: -1 });
+    res.json({ rooms });
+  } catch (error) {
+    logger.error(`Get my rooms error: ${error.message}`);
+    res.status(500).json({ error: 'Failed to retrieve rooms' });
+  }
+}
+
+/**
  * Get room by LRN.
  */
 async function getRoomByLRNHandler(req, res) {
@@ -184,13 +197,41 @@ async function endSessionHandler(req, res) {
   }
 }
 
+/**
+ * Get final results for a room.
+ * Public: only rank, name and score are exposed.
+ */
+async function getResultsHandler(req, res) {
+  try {
+    const room = await Room.findOne({ _id: req.params.roomId, isDeleted: false });
+    if (!room) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+    const Result = (await import('../models/Result.js')).default;
+    const results = await Result.find({ room: room._id }).sort({ rank: 1 }).lean();
+    res.json({
+      room: { lrn: room.lrn, name: room.name, status: room.status },
+      results: results.map((r) => ({
+        rank: r.rank,
+        participantName: r.participantName,
+        score: r.score,
+      })),
+    });
+  } catch (error) {
+    logger.error(`Get results error: ${error.message}`);
+    res.status(500).json({ error: 'Failed to retrieve results' });
+  }
+}
+
 export {
   verifyHostOwner,
   createRoomHandler,
+  getMyRoomsHandler,
   getRoomByLRNHandler,
   getRoomHandler,
   addQuestionHandler,
   getQuestionsHandler,
   startSessionHandler,
   endSessionHandler,
+  getResultsHandler,
 };

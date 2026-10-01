@@ -4,15 +4,25 @@ import { authenticate, requireHost } from '../middleware/auth.js';
 import { verifyHostOwner } from '../controllers/roomController.js';
 import {
   createRoomHandler,
+  getMyRoomsHandler,
   getRoomByLRNHandler,
   getRoomHandler,
   addQuestionHandler,
   getQuestionsHandler,
   startSessionHandler,
   endSessionHandler,
+  getResultsHandler,
 } from '../controllers/roomController.js';
 
 const router = express.Router();
+
+// List rooms owned by the authenticated host
+router.get(
+  '/',
+  authenticate,
+  requireHost,
+  getMyRoomsHandler
+);
 
 // Room creation (host only)
 router.post(
@@ -32,6 +42,9 @@ router.post(
 
 // Get room by LRN (public)
 router.get('/lrn/:lrn', getRoomByLRNHandler);
+
+// Final results (public: rank, name, score only)
+router.get('/:roomId/results', getResultsHandler);
 
 // Room CRUD (host only)
 router.route('/:roomId')

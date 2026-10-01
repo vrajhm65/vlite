@@ -14,12 +14,47 @@ function ActiveSessionPage() {
     leaderboard: [],
   });
   const [error, setError] = useState('');
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  // Display-only countdown, driven by server-provided questionEndsAt.
+  // Scoring/validation always uses server time; this is visual only.
+  useEffect(() => {
+    if (!sessionState.question?.questionEndsAt) return;
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [sessionState.question?._id, sessionState.question?.questionEndsAt]);
+
+  const remainingSeconds = (() => {
+    const endsAt = sessionState.question?.questionEndsAt;
+    if (!endsAt) return sessionState.timer;
+    return Math.max(0, Math.ceil((new Date(endsAt).getTime() - nowMs) / 1000));
+  })();
 
   useEffect(() => {
     if (!socket) return;
 
-    // Join room socket room
+    // Join room socket room, then request full state sync
+    // (covers refresh/reconnect recovery)
     socket.emit('room:join', { roomId });
+    socket.emit('session:sync', { roomId });
+
+    socket.on('room:state', (data) => {
+      // If the session already ended (e.g. missed session:end
+      // during a reconnect), go straight to results.
+      if (data.status === 'ended') {
+        navigate(`/results/${roomId}`);
+        return;
+      }
+      setSessionState((prev) => ({
+        ...prev,
+        question: data.activeQuestion || null,
+        participants: data.participantCount ?? prev.participants,
+      }));
+    });
+
+    socket.on('question:end', () => {
+      setSessionState((prev) => ({ ...prev, question: null }));
+    });
 
     // Listen for session events
     socket.on('session:start', (data) => {
@@ -51,6 +86,8 @@ function ActiveSessionPage() {
     });
 
     return () => {
+      socket.off('room:state');
+      socket.off('question:end');
       socket.off('session:start');
       socket.off('question:start');
       socket.off('timer:tick');
@@ -100,7 +137,7 @@ function ActiveSessionPage() {
               </button>
             ))}
           </div>
-          <div className="timer">Time: {sessionState.timer}s</div>
+          <div className="timer">Time: {remainingSeconds}s</div>
         </div>
       ) : (
         <div className="waiting-question">

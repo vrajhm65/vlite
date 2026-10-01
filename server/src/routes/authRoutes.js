@@ -15,8 +15,10 @@ const createHostValidation = [
   body('password').isLength({ min: 6 }),
 ];
 
+import { authenticate } from '../middleware/auth.js';
+
 router.post('/login', loginValidation, hostLogin);
 router.post('/host', createHostValidation, createHost);
-router.get('/me', getMe);
+router.get('/me', authenticate, getMe);
 
 export default router;

@@ -191,10 +191,11 @@ function initSocketIO(io) {
 
       // Clear question timer if host disconnects
       if (socket.user?.role === 'host' && socket.roomId) {
-        const { questionTimers } = await import('./handlers/roomHandler.js');
-        if (questionTimers.has(socket.roomId)) {
-          clearTimeout(questionTimers.get(socket.roomId));
-          questionTimers.delete(socket.roomId);
+        try {
+          const { clearRoomTimer } = await import('./handlers/roomHandler.js');
+          clearRoomTimer(socket.roomId);
+        } catch (error) {
+          logger.error(`Timer cleanup error: ${error.message}`);
         }
       }
     });

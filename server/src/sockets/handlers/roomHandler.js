@@ -183,9 +183,12 @@ async function handleJoinRoom(io, socket, { roomId }) {
 
   /**
    * Participant authorization.
+   *
+   * NOTE: socket.roomId is only set AFTER joining, so here we
+   * verify the JWT-bound participantRoomId instead.
    */
   if (socket.user?.role === 'participant') {
-    if (!isParticipantSocketForRoom(socket, roomId)) {
+    if (String(socket.participantRoomId) !== String(roomId)) {
       socket.emit('vlite:error', {
         code: 'PARTICIPANT_NOT_AUTHORIZED',
         message: 'This participant session does not belong to this room.',
@@ -507,19 +510,17 @@ async function handleNextQuestion(io, socket, { roomId, questionId }) {
 
   // Schedule question end
   const durationMs = question.durationSeconds * 1000;
-  const timerKey = `${roomId}:${questionId}`;
+  const timerKey = String(roomId);
 
   // Clear any existing timer for this room
-  if (questionTimers.has(roomId)) {
-    clearTimeout(questionTimers.get(roomId));
-  }
+  clearRoomTimer(timerKey);
 
   const timer = setTimeout(() => {
-    questionTimers.delete(roomId);
-    endQuestion(io, roomId, questionId);
+    questionTimers.delete(timerKey);
+    endQuestion(io, timerKey, questionId);
   }, durationMs);
 
-  questionTimers.set(roomId, timer);
+  questionTimers.set(timerKey, timer);
 
   logger.info(
     `Question started: room=${room.lrn} question=${question._id} endsAt=${endsAt.toISOString()}`
@@ -1012,7 +1013,9 @@ async function handleSync(io, socket, { roomId }) {
     return;
   }
 
-  // Verify socket belongs to this room
+  // Verify socket belongs to this room.
+  // NOTE: a freshly reconnected socket may not have joined yet,
+  // so for participants we check the JWT-bound participantRoomId.
   if (socket.user?.role === 'host') {
     if (!isHostSocketForRoom(socket, room)) {
       socket.emit('vlite:error', {
@@ -1022,7 +1025,7 @@ async function handleSync(io, socket, { roomId }) {
       return;
     }
   } else if (socket.user?.role === 'participant') {
-    if (!isParticipantSocketForRoom(socket, roomId)) {
+    if (String(socket.participantRoomId) !== String(roomId)) {
       socket.emit('vlite:error', {
         code: 'PARTICIPANT_NOT_AUTHORIZED',
         message: 'This participant session does not belong to this room.',
@@ -1050,6 +1053,16 @@ async function handleSync(io, socket, { roomId }) {
   logger.info(`Session sync: room=${roomId} socket=${socket.id}`);
 }
 
+/**
+ * Clear any pending question-end timer for a room.
+ */
+function clearRoomTimer(roomId) {
+  if (questionTimers.has(String(roomId))) {
+    clearTimeout(questionTimers.get(String(roomId)));
+    questionTimers.delete(String(roomId));
+  }
+}
+
 export {
   handleJoinRoom,
   handleStartSession,
@@ -1059,4 +1072,6 @@ export {
   handleRaiseHand,
   handleSync,
   updateLeaderboard,
+  clearRoomTimer,
+  questionTimers,
 };

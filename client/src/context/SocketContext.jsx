@@ -14,7 +14,11 @@ export function SocketProvider({ children }) {
   useEffect(() => {
     if (!token) return;
 
-    const newSocket = io(config.SOCKET_URL, {
+    // Use relative URL in development (proxied by Vite)
+    // Use absolute URL in production
+    const socketUrl = config.SOCKET_URL || undefined;
+
+    const newSocket = io(socketUrl, {
       auth: { token },
       reconnection: true,
       reconnectionAttempts: 10,
@@ -24,12 +28,10 @@ export function SocketProvider({ children }) {
 
     newSocket.on('connect', () => {
       setConnected(true);
-      console.log('Socket connected');
     });
 
     newSocket.on('disconnect', () => {
       setConnected(false);
-      console.log('Socket disconnected');
     });
 
     socketRef.current = newSocket;
