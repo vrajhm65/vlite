@@ -7,7 +7,12 @@ const config = {
   jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:5174',
-  allowedOrigins: (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174').split(','),
+  allowedOrigins: [
+  process.env.CLIENT_URL || 'http://localhost:5174',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
+],
   mongoUri: process.env.MONGODB_URI || '',
   mongoDbName: process.env.MONGODB_DB_NAME || 'vlite',
   captchaProvider: process.env.CAPTCHA_PROVIDER || 'none',
