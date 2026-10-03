@@ -9,6 +9,7 @@ import roomRoutes from './routes/roomRoutes.js';
 import participantRoutes from './routes/participantRoutes.js';
 
 const app = express();
+app.set("trust proxy", 1);
 
 // Security middleware
 app.use(helmet());
