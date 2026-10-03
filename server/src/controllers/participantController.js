@@ -1,5 +1,6 @@
 import { body, validationResult } from 'express-validator';
-import { createParticipantSession, validateParticipantSession } from '../services/participantService.js';
+import { createParticipantSession } from '../services/participantService.js';
+import ParticipantSession from '../models/ParticipantSession.js';
 import Room from '../models/Room.js';
 import logger from '../utils/logger.js';
 
@@ -38,8 +39,8 @@ async function joinRoom(req, res) {
       return res.status(404).json({ error: 'Room not found' });
     }
 
-    // Create session
-    const { session, token } = await createParticipantSession(participantName.trim(), room._id);
+    // Create (or resume) session
+    const { session, token, resumed } = await createParticipantSession(participantName.trim(), room._id);
 
     logger.info(`Participant joined: room=${room.lrn} name=${participantName}`);
 
@@ -49,6 +50,7 @@ async function joinRoom(req, res) {
       sessionId: session._id,
       roomId: room._id,
       lrn: room.lrn,
+      resumed: !!resumed,
     });
   } catch (error) {
     logger.error(`Join room error: ${error.message}`);
@@ -57,24 +59,40 @@ async function joinRoom(req, res) {
 }
 
 /**
- * Get participant session info.
+ * Verify the participant's stored session token server-side.
+ * Used on page refresh to recover the session without rejoining.
+ * Returns live identity + score; 401/404 forces a clean rejoin.
  */
-async function getSession(req, res) {
+async function getMeParticipant(req, res) {
   try {
-    const { token } = req;
-    const session = await validateParticipantSession(token, req.params.roomId);
+    if (!req.user || req.user.role !== 'participant') {
+      return res.status(403).json({ error: 'Participant access required' });
+    }
+
+    const session = await ParticipantSession.findOne({
+      token: req.token,
+      room: req.user.roomId,
+    });
     if (!session) {
       return res.status(404).json({ error: 'Session not found' });
     }
+
+    const room = await Room.findOne({ _id: session.room, isDeleted: false })
+      .select('lrn name status')
+      .lean();
+
     res.json({
       participantName: session.participantName,
       score: session.score,
-      joinedAt: session.joinedAt,
+      roomId: session.room,
+      sessionId: session._id,
+      lrn: room ? room.lrn : req.user.lrn,
+      roomStatus: room ? room.status : 'unknown',
     });
   } catch (error) {
-    logger.error(`Get session error: ${error.message}`);
+    logger.error(`Get participant me error: ${error.message}`);
     res.status(500).json({ error: 'Failed to retrieve session' });
   }
 }
 
-export { joinRoom, getSession };
+export { joinRoom, getMeParticipant };

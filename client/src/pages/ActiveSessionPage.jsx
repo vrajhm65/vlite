@@ -4,6 +4,7 @@ import { useSocket } from '../context/SocketContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import api from '../services/api.js';
 import { StatusBadge, MODE_INFO } from '../components/ui.jsx';
+import { formatScore, formatPoints } from '../utils/format.js';
 
 function ActiveSessionPage() {
   const { roomId } = useParams();
@@ -59,6 +60,18 @@ function ActiveSessionPage() {
       });
       setSession(data.session || null);
       setQuestion(data.activeQuestion || null);
+      // Restore this participant's own answer status after a refresh,
+      // straight from the server (never trusted from local storage).
+      if (data.myAnswer && data.myAnswer.answered) {
+        setAnswerState({
+          isCorrect: data.myAnswer.isCorrect,
+          pointsAwarded: data.myAnswer.pointsAwarded,
+          selectedOptionIndex: data.myAnswer.selectedOptionIndex,
+          restored: true,
+        });
+      } else if (data.activeQuestion) {
+        setAnswerState(null);
+      }
       if (typeof data.totalQuestions === 'number') setTotalQuestions(data.totalQuestions);
       if (typeof data.participantCount === 'number') setParticipantCount(data.participantCount);
     };
@@ -76,9 +89,15 @@ function ActiveSessionPage() {
       if (typeof data.totalQuestions === 'number') setTotalQuestions(data.totalQuestions);
       setAnswerState(null);
       setMyQueuePosition(null);
+      // The server resets the expert queue on every new question.
+      setExpertQueue([]);
       setError('');
     };
-    const onQuestionEnd = () => setQuestion(null);
+    const onQuestionEnd = () => {
+      setQuestion(null);
+      setMyQueuePosition(null);
+      setExpertQueue([]);
+    };
     const onBoard = (data) => setLeaderboard(data.leaderboard || []);
     const onSessionEnd = () => navigate(`/results/${roomId}`);
     const onAnswer = (data) => {
@@ -94,10 +113,23 @@ function ActiveSessionPage() {
         setError(reasons[data.reason] || 'Answer was not accepted.');
         return;
       }
-      setAnswerState({ isCorrect: data.isCorrect, pointsAwarded: data.pointsAwarded });
+      setAnswerState({
+        isCorrect: data.isCorrect,
+        pointsAwarded: data.pointsAwarded,
+        selectedOptionIndex: data.selectedOptionIndex,
+      });
     };
     const onRaised = (data) => setMyQueuePosition(data.position);
-    const onQueue = (data) => setExpertQueue(data.queue || []);
+    const onQueue = (data) => {
+      const queue = data.queue || [];
+      setExpertQueue(queue);
+      // Recover our own queue position after a refresh from the
+      // authoritative server queue (never from local state).
+      const me = queue.findIndex(
+        (entry) => user?.sessionId && String(entry.participantId) === String(user.sessionId)
+      );
+      setMyQueuePosition(me >= 0 ? me + 1 : null);
+    };
     const onExpertErr = (data) => {
       if (data.reason !== 'already_raised') {
         setError(data.reason === 'no_active_question' ? 'No active question right now.' : `Raise hand failed: ${data.reason}`);
@@ -132,7 +164,7 @@ function ActiveSessionPage() {
       socket.off('expert:error', onExpertErr);
       socket.off('vlite:error', onSockErr);
     };
-  }, [socket, roomId, navigate]);
+  }, [socket, roomId, navigate, user?.sessionId]);
 
   // Host loads the question bank for live control
   useEffect(() => {
@@ -169,7 +201,7 @@ function ActiveSessionPage() {
     const myId = user?.sessionId;
     if (!myId) return null;
     const entry = leaderboard.find((e) => String(e.participantId) === String(myId));
-    return entry ? entry.score : null;
+    return entry ? formatScore(entry.score) : null;
   })();
 
   const questionLabel = (() => {
@@ -285,21 +317,27 @@ function ActiveSessionPage() {
           )}
           {answerState && (
             <div className={`alert ${answerState.isCorrect ? 'alert-success' : 'alert-info'}`} role="status">
-              {answerState.isCorrect ? '✓ Correct' : '✗ Incorrect'} ({answerState.pointsAwarded >= 0 ? '+' : ''}{answerState.pointsAwarded} pts)
+              {answerState.isCorrect ? '✓ Correct' : '✗ Incorrect'} ({formatPoints(answerState.pointsAwarded)} pts)
+              {answerState.restored && <div style={{ marginTop: '0.25rem' }}>Answer restored after reconnect — already submitted.</div>}
               {question.explanation && isHost && <div style={{ marginTop: '0.25rem' }}>{question.explanation}</div>}
             </div>
           )}
           <div className="options-list" role="group" aria-label="Answer options">
-            {question.options.map((option, idx) => (
-              <button
-                key={idx}
-                className="option-btn"
-                onClick={() => handleAnswer(idx)}
-                disabled={!!answerState}
-              >
-                {option.label}: {option.text}
-              </button>
-            ))}
+            {question.options.map((option, idx) => {
+              const isMine = !!answerState && answerState.selectedOptionIndex === idx;
+              return (
+                <button
+                  key={idx}
+                  className={`option-btn${isMine ? (answerState.isCorrect ? ' answer-correct' : ' answer-wrong') : ''}`}
+                  onClick={() => handleAnswer(idx)}
+                  disabled={!!answerState}
+                  aria-pressed={isMine}
+                >
+                  {option.label}: {option.text}
+                  {isMine ? ' ✓' : ''}
+                </button>
+              );
+            })}
           </div>
           {remainingSeconds !== null && <div className="timer" aria-live="off">Time: {remainingSeconds}s</div>}
           <div className="progress-track" aria-hidden="true">
@@ -345,7 +383,7 @@ function ActiveSessionPage() {
                 >
                   <td>{entry.rank}</td>
                   <td>{entry.participantName}</td>
-                  <td>{entry.score}</td>
+                  <td>{formatScore(entry.score)}</td>
                 </tr>
               ))}
             </tbody>

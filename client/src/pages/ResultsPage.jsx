@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../services/api.js';
 import { LoadingState, EmptyState } from '../components/ui.jsx';
+import { formatScore } from '../utils/format.js';
 
 function ResultsPage() {
   const { roomId } = useParams();
@@ -60,7 +61,7 @@ function ResultsPage() {
                 <tr key={idx} className={idx === 0 ? 'highlight' : ''}>
                   <td>{entry.rank}</td>
                   <td>{entry.participantName}</td>
-                  <td>{entry.score}</td>
+                  <td>{formatScore(entry.score)}</td>
                 </tr>
               ))}
             </tbody>

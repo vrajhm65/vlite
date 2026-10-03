@@ -3,6 +3,7 @@ import Session from '../models/Session.js';
 import Question from '../models/Question.js';
 import ParticipantSession from '../models/ParticipantSession.js';
 import Result from '../models/Result.js';
+import { roundScore } from './scoringService.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -111,7 +112,7 @@ async function endSession(roomId) {
     sessionNumber: session.sessionNumber,
     participantSession: p._id,
     participantName: p.participantName,
-    score: p.score,
+    score: roundScore(p.score),
     totalQuestions: room.questions.length,
     correctAnswers: 0,
     wrongAnswers: 0,

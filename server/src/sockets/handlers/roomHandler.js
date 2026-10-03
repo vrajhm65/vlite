@@ -15,6 +15,7 @@ import {
 import {
   calculateNormalScore,
   calculateIntermediateScore,
+  roundScore,
 } from '../../services/scoringService.js';
 
 import expertQueue from '../../services/expertModeService.js';
@@ -150,6 +151,10 @@ async function getRoomState(room, socket) {
     maxParticipants: room.maxParticipants,
     session: sessionInfo,
     activeQuestion: null,
+    // For participants: their own answer status on the active question,
+    // so a refresh restores the submitted state without allowing re-answer.
+    // Never reveals other participants' data.
+    myAnswer: null,
   };
 
   if (!room.activeQuestionId) {
@@ -164,6 +169,23 @@ async function getRoomState(room, socket) {
 
   if (!question) {
     return state;
+  }
+
+  if (socket.user?.role === 'participant' && socket.participantSessionId) {
+    const mine = await Answer.findOne({
+      participantSession: socket.participantSessionId,
+      question: room.activeQuestionId,
+    })
+      .select('selectedOptionIndex isCorrect pointsAwarded')
+      .lean();
+    if (mine) {
+      state.myAnswer = {
+        answered: true,
+        selectedOptionIndex: mine.selectedOptionIndex,
+        isCorrect: mine.isCorrect,
+        pointsAwarded: roundScore(mine.pointsAwarded),
+      };
+    }
   }
 
   const timing = {
@@ -832,6 +854,9 @@ async function handleAnswerSubmit(
     });
   }
 
+  // Enforce the score precision policy before anything is stored.
+  points = roundScore(points);
+
   /**
    * Save answer.
    */
@@ -898,6 +923,7 @@ async function handleAnswerSubmit(
     valid: true,
     isCorrect,
     pointsAwarded: points,
+    selectedOptionIndex,
     answeredAt: now.toISOString(),
     elapsedMs,
   });
@@ -933,7 +959,9 @@ async function updateLeaderboard(io, roomId) {
     rank: index + 1,
     participantId: participant._id,
     participantName: participant.participantName,
-    score: participant.score,
+    // Rounded per the score precision policy; ranking above
+    // still uses the authoritative numeric score.
+    score: roundScore(participant.score),
   }));
 
   emitToRoom(io, roomId, 'leaderboard:update', {

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useSocket } from '../context/SocketContext.jsx';
 import api from '../services/api.js';
+import { formatScore } from '../utils/format.js';
 import {
   StatusBadge,
   StatCard,
@@ -342,7 +343,7 @@ function RoomPage() {
                   {participants.slice(0, 20).map((p) => (
                     <tr key={p._id}>
                       <td>{p.participantName}</td>
-                      <td>{p.score}</td>
+                      <td>{formatScore(p.score)}</td>
                       <td>{p.isConnected ? '🟢' : '⚪'}</td>
                     </tr>
                   ))}
@@ -443,7 +444,7 @@ function RoomPage() {
                         <td colSpan={5}>
                           <ol>
                             {sessionResults[s._id].map((r, i) => (
-                              <li key={i}>{r.rank}. {r.participantName} — {r.score}</li>
+                              <li key={i}>{r.rank}. {r.participantName} — {formatScore(r.score)}</li>
                             ))}
                           </ol>
                         </td>

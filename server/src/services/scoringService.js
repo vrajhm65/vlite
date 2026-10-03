@@ -4,6 +4,30 @@ import ParticipantSession from '../models/ParticipantSession.js';
 import logger from '../utils/logger.js';
 
 /**
+ * VLITE SCORE PRECISION POLICY (single source of truth)
+ *
+ * - All scores are stored rounded to SCORE_DECIMALS decimal places
+ *   using conventional round-half-up (Math.round).
+ * - The UI must display scores with exactly SCORE_DECIMALS decimals
+ *   (see client/src/utils/format.js `formatScore`).
+ * - Leaderboards sort on the authoritative numeric score, never on
+ *   formatted strings; ties keep the existing deterministic rule
+ *   (score desc, name asc, id asc).
+ *
+ * This keeps stored values deterministic across server restarts and
+ * prevents binary floating-point artifacts (e.g. 7.777777777777777)
+ * from ever reaching the UI.
+ */
+const SCORE_DECIMALS = 2;
+
+function roundScore(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  const factor = 10 ** SCORE_DECIMALS;
+  return Math.round((n + Number.EPSILON) * factor) / factor;
+}
+
+/**
  * Normal mode: fixed points, no speed factor.
  */
 function calculateNormalScore(correct, roomConfig) {
@@ -20,16 +44,16 @@ function calculateNormalScore(correct, roomConfig) {
  *   elapsed = serverNow - questionStartedAt (ms)
  *   ratio = elapsed / (durationSeconds * 1000)
  *   points = max(0, marks * (1 - ratio))
- *   Rounded to 2 decimal places.
+ *   Stored rounded per SCORE_DECIMALS (see policy above).
  *
  * If ratio >= 1, points = 0 (answered after time expired).
  */
 function calculateIntermediateScore(correct, elapsedMs, totalDurationMs, marks) {
   if (!correct) return 0;
-  if (elapsedMs <= 0) return marks;
+  if (elapsedMs <= 0) return roundScore(marks);
   const ratio = Math.min(elapsedMs / totalDurationMs, 1);
   const points = Math.max(0, marks * (1 - ratio));
-  return Math.round(points * 100) / 100;
+  return roundScore(points);
 }
 
 /**
@@ -73,19 +97,19 @@ async function validateAndScoreAnswer({
     room: roomId,
     selectedOptionIndex,
     isCorrect,
-    pointsAwarded: points,
+    pointsAwarded: roundScore(points),
     answeredAt: new Date(),
   });
 
   // Update participant score
   await ParticipantSession.findByIdAndUpdate(participantId, {
-    $inc: { score: points },
+    $inc: { score: roundScore(points) },
     $push: { answeredQuestions: questionId },
   });
 
   logger.info(`Answer scored: participant=${participantId} question=${questionId} correct=${isCorrect} points=${points}`);
 
-  return { valid: true, isCorrect, points };
+  return { valid: true, isCorrect, points: roundScore(points) };
 }
 
-export { calculateNormalScore, calculateIntermediateScore, validateAndScoreAnswer };
+export { calculateNormalScore, calculateIntermediateScore, validateAndScoreAnswer, roundScore, SCORE_DECIMALS };

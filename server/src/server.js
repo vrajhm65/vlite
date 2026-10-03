@@ -7,9 +7,18 @@ import logger from './utils/logger.js';
 import app from './app.js';
 import { initSocketIO } from './sockets/index.js';
 import { startCleanup, stopCleanup } from './jobs/cleanupJob.js';
+import { resetAllConnections } from './services/participantService.js';
 
 async function main() {
   await connectDB();
+
+  // Clear stale live-connection flags left over from before a
+  // restart. Never touches scores, answers or history.
+  try {
+    await resetAllConnections();
+  } catch (error) {
+    logger.warn(`Connection reset skipped: ${error.message}`);
+  }
 
   const server = http.createServer(app);
 

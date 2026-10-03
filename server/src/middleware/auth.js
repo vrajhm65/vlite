@@ -20,6 +20,8 @@ function authenticate(req, res, next) {
   try {
     const decoded = verify(token, config.jwtSecret);
     req.user = decoded;
+    // Raw token for session lookups (e.g. participant recovery).
+    req.token = token;
     next();
   } catch (err) {
     logger.warn(`Token verification failed: ${err.message}`);

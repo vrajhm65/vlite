@@ -29,12 +29,18 @@ export function AuthProvider({ children }) {
 
     api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
 
-    // Participant sessions are verified by the Socket.IO layer
-    // (JWT verified server-side on every connection). No /me lookup needed.
+    // Participant sessions are re-validated server-side on every
+    // load (GET /participants/me). An expired or deleted session
+    // forces a clean rejoin instead of a stuck broken state.
     if (storedUser?.role === 'participant') {
-      setUser(storedUser);
-      setToken(storedToken);
-      setLoading(false);
+      api
+        .get('/participants/me')
+        .then(() => {
+          setUser(storedUser);
+          setToken(storedToken);
+        })
+        .catch(() => logout())
+        .finally(() => setLoading(false));
       return;
     }
 

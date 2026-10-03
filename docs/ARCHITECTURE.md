@@ -29,6 +29,46 @@ All critical state is managed server-side:
 - Expert queue ordering is server-determined
 - Participants cannot forge identity, score, or permissions
 
+### Scoring Precision Policy
+
+Single policy, enforced in one place on each side:
+
+- **Stored**: every awarded point value is rounded server-side with
+  conventional round-half-up to 2 decimals
+  (`roundScore` in `server/src/services/scoringService.js`).
+  Intermediate speed scores, persisted results, and leaderboard payloads
+  all pass through it.
+- **Displayed**: exactly 2 decimals everywhere
+  (`formatScore` in `client/src/utils/format.js` → `"10.00"`, `"8.50"`,
+  `"7.78"`). No scattered `toFixed()` calls.
+- **Ranked**: leaderboards sort on the authoritative numeric score
+  (descending, then name, then id); never on formatted strings.
+
+This keeps stored values deterministic across restarts and guarantees
+binary floating-point artifacts (e.g. `7.777777777777777`) can never
+reach the UI.
+
+### Session Recovery
+
+Refreshing destroys the browser's JS state and Socket.IO connection,
+so recovery is server-driven:
+
+- The participant token persists in the browser; on reload it is
+  re-validated server-side (`GET /participants/me`) before use.
+- A fresh socket authenticates, joins the room, and receives the full
+  authoritative state (`room:state`): room, live session, current
+  question with server `questionStartedAt`/`questionEndsAt`, the
+  participant's own prior answer (`myAnswer`), score, and leaderboard.
+- Timers are never restarted client-side; the countdown derives from
+  the server deadline. Answered questions stay locked (server rejects
+  re-submits). Expert queue position is re-derived from the server
+  queue — no duplicate entries.
+- Rejoining with the same name resumes the disconnected session
+  document (score/history preserved); a name currently live elsewhere
+  is never hijacked. Server restarts clear stale connection flags.
+- If recovery is impossible (invalid/expired session, ended room),
+  the UI shows a proper VLITE message, never a raw 404.
+
 ### Room vs Session
 
 The most important architectural distinction in VLITE:

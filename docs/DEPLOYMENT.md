@@ -30,9 +30,31 @@ npm install
 npm run build
 ```
 
+Set the Vercel project **Root Directory** to `client` (framework preset: Vite).
+
 Set environment variables in Vercel dashboard:
-- `VITE_API_URL` - Production backend URL
-- `VITE_SOCKET_URL` - Production backend URL
+- `VITE_API_URL` - Production backend base URL **including the `/api` prefix**
+  (e.g. `https://your-backend.com/api`)
+- `VITE_SOCKET_URL` - Production backend origin
+  (e.g. `https://your-backend.com`)
+
+#### SPA routing (required)
+
+VLITE is a React Router single-page app. Without a rewrite, refreshing
+any client-side route (`/join`, `/session/:roomId`, `/host/dashboard`,
+...) returns a Vercel 404 because no such static file exists.
+
+`client/vercel.json` already contains the required fallback:
+
+```json
+{
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}
+```
+
+Do not remove it. API calls are unaffected: in production the frontend
+calls the absolute `VITE_API_URL` directly, so `/api/*` never collides
+with the rewrite.
 
 ### Netlify
 
@@ -74,15 +96,12 @@ JWT_SECRET=production-long-random-secret
 NODE_ENV=production
 PORT=5000
 CLIENT_URL=https://yourdomain.com
-CAPTCHA_PROVIDER=recaptcha-v3
-RECAPTCHA_SITE_KEY=your-site-key
-RECAPTCHA_SECRET_KEY=your-secret-key
 ```
 
 ### client/.env (production)
 
 ```
-VITE_API_URL=https://your-backend.com
+VITE_API_URL=https://your-backend.com/api
 VITE_SOCKET_URL=https://your-backend.com
 ```
 
@@ -92,6 +111,17 @@ For production:
 1. Set `CLIENT_URL` to your frontend domain
 2. CORS configured to allow only your domain
 3. No `origin: "*"` in production
+
+## Production Refresh Check
+
+After deploying, verify no route returns a generic 404:
+
+- open `/` directly
+- navigate to a room and refresh the page
+- open `/join`, refresh
+- open `/login`, refresh
+- as a participant, refresh mid-question and confirm the session,
+  question, timer and submitted state are restored without rejoining
 
 ## Database
 
